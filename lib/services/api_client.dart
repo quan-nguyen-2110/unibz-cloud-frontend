@@ -1,0 +1,102 @@
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+
+import '../config/app_config.dart';
+import 'auth_token_store.dart';
+
+class ApiException implements Exception {
+  ApiException(this.statusCode, this.message);
+  final int statusCode;
+  final String message;
+
+  @override
+  String toString() => 'ApiException($statusCode): $message';
+}
+
+/// HTTP client for SquadUp API (JWT or dev header).
+class ApiClient {
+  ApiClient({http.Client? client, AuthTokenStore? tokens})
+      : _client = client ?? http.Client(),
+        _tokens = tokens ?? authTokenStore;
+
+  final http.Client _client;
+  final AuthTokenStore _tokens;
+
+  Uri _uri(String path, [Map<String, String>? query]) {
+    final base = AppConfig.apiBaseUrl.replaceAll(RegExp(r'/+$'), '');
+    return Uri.parse('$base$path').replace(queryParameters: query);
+  }
+
+  Map<String, String> _headers({bool jsonBody = false}) {
+    final h = <String, String>{
+      'X-Correlation-Id': 'flutter-${DateTime.now().microsecondsSinceEpoch}',
+      'Accept': 'application/json',
+    };
+    if (jsonBody) h['Content-Type'] = 'application/json';
+    final token = _tokens.accessToken;
+    if (token != null && token.isNotEmpty) {
+      h['Authorization'] = 'Bearer $token';
+    } else if (AppConfig.useDevAuth) {
+      h['X-Dev-User-Id'] = AppConfig.devUserId;
+    }
+    return h;
+  }
+
+  Future<Map<String, dynamic>> getJson(String path,
+      {Map<String, String>? query}) async {
+    final res = await _client.get(_uri(path, query), headers: _headers());
+    return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> postJson(
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
+    final res = await _client.post(
+      _uri(path),
+      headers: _headers(jsonBody: body != null),
+      body: body != null ? jsonEncode(body) : null,
+    );
+    return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> putJson(
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
+    final res = await _client.put(
+      _uri(path),
+      headers: _headers(jsonBody: body != null),
+      body: body != null ? jsonEncode(body) : null,
+    );
+    return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> deleteJson(String path) async {
+    final res = await _client.delete(_uri(path), headers: _headers());
+    return _decode(res);
+  }
+
+  Map<String, dynamic> _decode(http.Response res) {
+    Map<String, dynamic>? parsed;
+    if (res.body.isNotEmpty) {
+      final decoded = jsonDecode(res.body);
+      if (decoded is Map<String, dynamic>) parsed = decoded;
+    }
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      return parsed ?? {};
+    }
+    final msg = parsed?['error']?.toString() ?? res.body;
+    throw ApiException(res.statusCode, msg.isEmpty ? 'HTTP ${res.statusCode}' : msg);
+  }
+
+  Future<bool> checkHealth() async {
+    try {
+      final data = await getJson('/healthz');
+      return data['status'] == 'ok';
+    } on ApiException {
+      return false;
+    }
+  }
+}
