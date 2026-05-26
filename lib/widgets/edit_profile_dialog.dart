@@ -1,7 +1,10 @@
-// Migrated from squadUp-layout/src/routes/profile.$userId.tsx EditProfileDialog
+// Migrated from squadUp-layout/src/routes/profile.$userId.tsx (9b5809d)
+
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../models/models.dart';
@@ -9,6 +12,7 @@ import '../services/api_client.dart';
 import '../state/app_state.dart';
 import '../theme/squad_theme.dart';
 import 'auth_flow_widgets.dart';
+import 'squad_layout_widgets.dart';
 
 /// Shows edit-profile sheet. Returns updated [SquadUser] on save, null if cancelled.
 Future<SquadUser?> showEditProfileDialog(
@@ -37,6 +41,9 @@ class _EditProfileDialogState extends State<_EditProfileDialog> {
   late final TextEditingController _bio;
   late final TextEditingController _interests;
 
+  late String? _avatarUrl;
+  final ImagePicker _imagePicker = ImagePicker();
+
   bool _saving = false;
   String? _error;
 
@@ -53,6 +60,7 @@ class _EditProfileDialogState extends State<_EditProfileDialog> {
     );
     _bio = TextEditingController(text: u.bio ?? '');
     _interests = TextEditingController(text: (u.interests ?? []).join(', '));
+    _avatarUrl = u.avatarUrl;
   }
 
   @override
@@ -63,6 +71,33 @@ class _EditProfileDialogState extends State<_EditProfileDialog> {
     _bio.dispose();
     _interests.dispose();
     super.dispose();
+  }
+
+  SquadUser get _previewUser => SquadUser(
+        id: widget.initial.id,
+        username: widget.initial.username,
+        displayName: _name.text.trim().isEmpty
+            ? widget.initial.displayName
+            : _name.text.trim(),
+        phone: widget.initial.phone,
+        city: widget.initial.city,
+        avatarEmoji: widget.initial.avatarEmoji,
+        avatarUrl: _avatarUrl,
+      );
+
+  Future<void> _pickAvatar() async {
+    final file = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 75,
+      maxWidth: 512,
+      maxHeight: 512,
+    );
+    if (file == null || !mounted) return;
+    final bytes = await file.readAsBytes();
+    final mime = file.mimeType ?? 'image/jpeg';
+    setState(() {
+      _avatarUrl = 'data:$mime;base64,${base64Encode(bytes)}';
+    });
   }
 
   Future<void> _save() async {
@@ -107,6 +142,8 @@ class _EditProfileDialogState extends State<_EditProfileDialog> {
         age: ageNum,
         profileLocation: location.isEmpty ? null : location,
         interests: interestList,
+        avatarUrl: _avatarUrl,
+        replaceAvatar: true,
       );
       if (!mounted) return;
       Navigator.of(context).pop(updated);
@@ -140,6 +177,57 @@ class _EditProfileDialogState extends State<_EditProfileDialog> {
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
                   ),
+                ),
+                const SizedBox(height: 16),
+                Column(
+                  children: [
+                    Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        SquadUserAvatar(user: _previewUser, size: 80),
+                        Positioned(
+                          right: -2,
+                          bottom: -2,
+                          child: Material(
+                            color: SquadColors.primary,
+                            shape: const CircleBorder(),
+                            elevation: 2,
+                            shadowColor:
+                                SquadColors.primary.withValues(alpha: 0.25),
+                            child: InkWell(
+                              customBorder: const CircleBorder(),
+                              onTap: _pickAvatar,
+                              child: const SizedBox(
+                                width: 32,
+                                height: 32,
+                                child: Icon(
+                                  Icons.photo_camera_rounded,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_avatarUrl != null && _avatarUrl!.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      TextButton(
+                        onPressed: () => setState(() => _avatarUrl = null),
+                        style: TextButton.styleFrom(
+                          foregroundColor: SquadColors.muted,
+                        ),
+                        child: Text(
+                          'Remove photo',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
                 const SizedBox(height: 16),
                 const AuthFieldLabel('Name'),
@@ -296,6 +384,7 @@ class _EditProfileDialogState extends State<_EditProfileDialog> {
       controller: controller,
       maxLength: maxLength,
       keyboardType: keyboardType,
+      onChanged: (_) => setState(() {}),
       decoration: InputDecoration(
         hintText: hint,
         filled: true,

@@ -1,4 +1,4 @@
-// Feed home — `squadUp-layout` `index.tsx` (ec99d70: privacy badges + filtering).
+// Feed home — `squadUp-layout` `index.tsx` (a960bb6: hosting badge + privacy).
 
 import 'dart:async';
 
@@ -14,6 +14,7 @@ import '../theme/squad_theme.dart';
 import '../widgets/plan_card_widget.dart';
 import '../widgets/squad_layout_widgets.dart';
 import 'friends_screen.dart';
+import 'notifications_screen.dart';
 import 'plan_detail_screen.dart';
 
 class FeedScreen extends StatefulWidget {
@@ -35,7 +36,9 @@ class _FeedScreenState extends State<FeedScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<AppState>().refreshSquadFromApi();
+      final app = context.read<AppState>();
+      app.refreshSquadFromApi();
+      app.refreshNotifications();
     });
   }
 
@@ -68,6 +71,7 @@ class _FeedScreenState extends State<FeedScreen> {
         final going = _goingCount(app);
         final me = app.currentUser;
         final incomingCount = app.incomingRequestIds.length;
+        final unreadNotifs = app.unreadNotificationCount;
         final feedSubtitle = going == 0
             ? 'See what friends are up to — tap I\'m down to join.'
             : "You're in on $going plan${going == 1 ? '' : 's'}";
@@ -88,7 +92,31 @@ class _FeedScreenState extends State<FeedScreen> {
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _FriendsHeaderButton(incomingCount: incomingCount),
+                    SquadHeaderIconButton(
+                      icon: Icons.notifications_outlined,
+                      badgeCount: unreadNotifs,
+                      semanticLabel: 'Notifications',
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const NotificationsScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    SquadHeaderIconButton(
+                      icon: Icons.people_outline_rounded,
+                      badgeCount: incomingCount,
+                      semanticLabel: 'Friends',
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const FriendsScreen(),
+                          ),
+                        );
+                      },
+                    ),
                     const SizedBox(width: 8),
                     GestureDetector(
                       onTap: () {
@@ -345,60 +373,3 @@ class _FeedScreenState extends State<FeedScreen> {
   }
 }
 
-class _FriendsHeaderButton extends StatelessWidget {
-  const _FriendsHeaderButton({required this.incomingCount});
-
-  final int incomingCount;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: SquadColors.card,
-      borderRadius: BorderRadius.circular(16),
-      elevation: 0,
-      shadowColor: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute<void>(builder: (_) => const FriendsScreen()),
-          );
-        },
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(10),
-              child: Icon(Icons.people_outline_rounded, size: 22),
-            ),
-            if (incomingCount > 0)
-              Positioned(
-                right: -2,
-                top: -2,
-                child: Container(
-                  constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  decoration: BoxDecoration(
-                    color: SquadColors.primary,
-                    shape: BoxShape.circle,
-                    border: Border.fromBorderSide(
-                      BorderSide(color: SquadColors.card, width: 2),
-                    ),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    '$incomingCount',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}

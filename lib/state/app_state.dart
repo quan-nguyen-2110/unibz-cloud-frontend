@@ -1,4 +1,7 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/foundation.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../config/app_config.dart';
 import '../models/models.dart';
@@ -9,6 +12,9 @@ import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/auth_token_store.dart';
 import '../services/jwt_util.dart';
+import '../services/feed_hub_service.dart';
+import '../services/notification_service.dart';
+import '../services/plan_photo_service.dart';
 import '../services/user_lookup.dart';
 
 enum FriendStatus { friend, incoming, outgoing, none }
@@ -20,13 +26,22 @@ class AppState extends ChangeNotifier {
   }
 
   late final ApiPlanRepository _planRepo;
+  final PlanPhotoService _planPhotos = PlanPhotoService();
   final ApiClient _apiClient = ApiClient();
   final ApiFriendRepository _friendRepo = ApiFriendRepository();
   final ApiUserRepository _userRepo = ApiUserRepository();
   final UserLookup users = UserLookup();
+  final FeedHubService _feedHub = FeedHubService();
+  final NotificationService _notificationService = NotificationService();
 
   String? apiProbeMessage;
   SquadUser? currentUser;
+  List<SquadNotification> notifications = [];
+  String? planCancelledToast;
+  String? planCancelledToastPlanId;
+
+  int get unreadNotificationCount =>
+      notifications.where((n) => !n.read).length;
 
   bool get isAuthenticated => currentUser != null;
 
@@ -48,6 +63,7 @@ class AppState extends ChangeNotifier {
     if (currentUser != null) users.seed(currentUser!);
     try {
       await refreshSquadFromApi();
+      await _connectRealtime();
     } catch (e) {
       apiProbeMessage = 'Sync failed: $e';
     }
@@ -77,6 +93,7 @@ class AppState extends ChangeNotifier {
     if (currentUser != null) users.seed(currentUser!);
     try {
       await refreshSquadFromApi();
+      await _connectRealtime();
     } catch (e) {
       apiProbeMessage = 'Sync failed: $e';
     }
@@ -114,6 +131,8 @@ class AppState extends ChangeNotifier {
     int? age,
     String? profileLocation,
     List<String>? interests,
+    String? avatarUrl,
+    bool replaceAvatar = false,
   }) async {
     final me = currentUser;
     if (me == null) {
@@ -140,7 +159,7 @@ class AppState extends ChangeNotifier {
       bio: bio.isEmpty ? null : bio,
       interests: (interests == null || interests.isEmpty) ? null : interests,
       profileLocation: loc?.isEmpty ?? true ? null : loc,
-      avatarUrl: me.avatarUrl,
+      avatarUrl: replaceAvatar ? avatarUrl : (avatarUrl ?? me.avatarUrl),
     );
     currentUser = updated;
     users.seed(updated);
@@ -149,6 +168,7 @@ class AppState extends ChangeNotifier {
   }
 
   void logout() {
+    _disconnectRealtime();
     currentUser = null;
     users.clear();
     AuthService().logout();
@@ -158,6 +178,114 @@ class AppState extends ChangeNotifier {
     plans.clear();
     recentPlans.clear();
     cancelledPlanIds.clear();
+    notifications.clear();
+    planCancelledToast = null;
+    planCancelledToastPlanId = null;
+    notifyListeners();
+  }
+
+  Future<void> _connectRealtime() async {
+    _feedHub.onPlanCancelled = _onPlanCancelledHub;
+    _feedHub.onInboxNotification = _onInboxNotificationHub;
+    try {
+      await _feedHub.connect();
+      await refreshNotifications();
+    } catch (e) {
+      apiProbeMessage = 'Realtime connect failed: $e';
+    }
+  }
+
+  void _disconnectRealtime() {
+    _feedHub.onPlanCancelled = null;
+    _feedHub.onInboxNotification = null;
+    unawaited(_feedHub.disconnect());
+  }
+
+  void _onPlanCancelledHub(PlanCancelledHubEvent event) {
+    cancelledPlanIds.add(event.planId);
+    planCancelledToast = event.message;
+    planCancelledToastPlanId = event.planId;
+    notifyListeners();
+  }
+
+  void _onInboxNotificationHub(InboxNotificationHubEvent event) {
+    if (event.notificationId != null) {
+      final id = event.notificationId!;
+      if (notifications.any((n) => n.id == id)) return;
+      notifications.insert(
+        0,
+        SquadNotification(
+          id: id,
+          type: event.type,
+          planId: event.planId,
+          title: event.title,
+          body: event.body,
+          read: false,
+          createdAt: DateTime.now(),
+          hostId: event.hostId,
+          hostName: event.hostName,
+          planTitle: event.planTitle,
+        ),
+      );
+      notifyListeners();
+      return;
+    }
+    unawaited(refreshNotifications());
+  }
+
+  void clearPlanCancelledToast() {
+    if (planCancelledToast == null) return;
+    planCancelledToast = null;
+    planCancelledToastPlanId = null;
+    notifyListeners();
+  }
+
+  Future<void> refreshNotifications() async {
+    if (!isAuthenticated) return;
+    try {
+      notifications = await _notificationService.fetch(limit: 50);
+      notifyListeners();
+    } catch (e) {
+      apiProbeMessage = 'Notifications failed: $e';
+      notifyListeners();
+    }
+  }
+
+  Future<void> markNotificationRead(String notificationId) async {
+    final updated = await _notificationService.markRead(notificationId);
+    if (updated == null) return;
+    final i = notifications.indexWhere((n) => n.id == notificationId);
+    if (i >= 0) {
+      notifications[i] = updated;
+      notifyListeners();
+    }
+  }
+
+  Future<void> markAllNotificationsRead() async {
+    await _notificationService.markAllRead();
+    notifications = notifications
+        .map(
+          (n) => SquadNotification(
+            id: n.id,
+            type: n.type,
+            planId: n.planId,
+            title: n.title,
+            body: n.body,
+            read: true,
+            createdAt: n.createdAt,
+            hostId: n.hostId,
+            hostName: n.hostName,
+            planTitle: n.planTitle,
+          ),
+        )
+        .toList();
+    notifyListeners();
+  }
+
+  /// Clears the inbox locally (layout `clearNotifications`). Items may reappear on refresh until a delete API exists.
+  Future<void> clearAllNotifications() async {
+    await markAllNotificationsRead();
+    notifications = [];
     notifyListeners();
   }
 
@@ -271,6 +399,66 @@ class AppState extends ChangeNotifier {
 
   bool isHost(SquadPlan plan) => plan.creatorId == currentUser?.id;
 
+  bool canEditPlan(SquadPlan plan) =>
+      isHost(plan) && !isPlanCancelled(plan.id) && !plan.hasStarted;
+
+  /// All plans from feed stores, deduped by id — `squadUp-layout` `my-plans.tsx`.
+  List<SquadPlan> allPlansMerged() {
+    final seen = <String>{};
+    final out = <SquadPlan>[];
+    for (final p in [...recentPlans, ...plans]) {
+      if (seen.add(p.id)) out.add(p);
+    }
+    return out;
+  }
+
+  bool isPlanPast(SquadPlan plan) {
+    if (plan.status == PlanStatus.completed) return true;
+    return plan.startAt.isBefore(DateTime.now());
+  }
+
+  bool isUserAttending(SquadPlan plan, String userId) =>
+      plan.creatorId == userId || plan.userHasTappedIn(userId);
+
+  List<SquadPlan> myPlansUpcoming(String userId) {
+    return allPlansMerged()
+        .where(
+          (p) =>
+              !isPlanPast(p) &&
+              !isPlanCancelled(p.id) &&
+              isUserAttending(p, userId) &&
+              p.creatorId != userId,
+        )
+        .toList()
+      ..sort((a, b) => a.startAt.compareTo(b.startAt));
+  }
+
+  List<SquadPlan> myPlansAttended(String userId) {
+    return allPlansMerged()
+        .where(
+          (p) =>
+              isPlanPast(p) &&
+              isUserAttending(p, userId) &&
+              p.creatorId != userId,
+        )
+        .toList()
+      ..sort((a, b) => b.startAt.compareTo(a.startAt));
+  }
+
+  List<SquadPlan> myPlansHosting(String userId) {
+    return allPlansMerged()
+        .where((p) => p.creatorId == userId)
+        .toList()
+      ..sort((a, b) => a.startAt.compareTo(b.startAt));
+  }
+
+  /// Spots copy for host cards — layout `spotsLeft` / unlimited.
+  String planSpotsLabel(SquadPlan plan) {
+    if (plan.threshold >= 99) return 'Unlimited';
+    final left = (plan.threshold - plan.tapInCount).clamp(0, plan.threshold);
+    return '$left left';
+  }
+
   Future<void> cancelPlan(String planId) async {
     await _planRepo.cancelPlan(planId);
     cancelledPlanIds.add(planId);
@@ -331,7 +519,29 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> addPlanFromDraft(PlanDraft draft, PlanSource source) async {
+  Future<void> refreshPlanDetail(String planId) async {
+    try {
+      final remote = await _planRepo.getPlan(planId);
+      if (remote == null) return;
+      if (_findPlan(planId) != null) {
+        _replacePlan(remote);
+      } else {
+        plans.insert(0, remote);
+        recentPlans.insert(0, remote);
+      }
+      await users.prefetch([remote.creatorId, ...remote.tapInUserIds]);
+      notifyListeners();
+    } catch (e) {
+      apiProbeMessage = 'Load plan failed: $e';
+      notifyListeners();
+    }
+  }
+
+  Future<SquadPlan?> addPlanFromDraft(
+    PlanDraft draft,
+    PlanSource source, {
+    List<XFile> localPhotos = const [],
+  }) async {
     final acts = draft.activities.isNotEmpty
         ? draft.activities
             .map((a) {
@@ -356,7 +566,7 @@ class AppState extends ChangeNotifier {
               durationMinutes: null,
             ),
           ];
-    if (acts.isEmpty) return;
+    if (acts.isEmpty) return null;
 
     try {
       final apiDraft = PlanDraft(
@@ -373,6 +583,13 @@ class AppState extends ChangeNotifier {
       );
       var plan = await _planRepo.createPlan(apiDraft, source);
       await _planRepo.tapIn(plan.id);
+      if (localPhotos.isNotEmpty) {
+        await _planPhotos.uploadPlanPhotos(
+          plan.id,
+          localPhotos,
+          maxCount: PlanPhotoService.maxHostInitialPhotos,
+        );
+      }
       plan = await _planRepo.getPlan(plan.id) ?? plan;
       recentPlans.insert(0, plan);
       final existing = plans.indexWhere((p) => p.id == plan.id);
@@ -383,9 +600,63 @@ class AppState extends ChangeNotifier {
       }
       await users.prefetch([plan.creatorId, ...plan.tapInUserIds]);
       notifyListeners();
+      return plan;
     } catch (e) {
       apiProbeMessage = 'Create plan failed: $e';
       notifyListeners();
+      return null;
+    }
+  }
+
+  Future<SquadPlan?> updatePlanFromDraft(String planId, PlanDraft draft) async {
+    final existing = _findPlan(planId);
+    if (existing == null || !canEditPlan(existing)) return null;
+    final acts = draft.activities.isNotEmpty
+        ? draft.activities
+            .map((a) {
+              final loc = a.location?.trim();
+              final dm = a.durationMinutes;
+              return PlanActivity(
+                emoji: a.emoji,
+                title: a.title.trim(),
+                location: (loc == null || loc.isEmpty) ? null : loc,
+                durationMinutes: (dm != null && dm > 0) ? dm : null,
+              );
+            })
+            .where((a) => a.title.isNotEmpty)
+            .toList()
+        : [
+            PlanActivity(
+              emoji: draft.vibeEmoji,
+              title: draft.title.trim(),
+              location: (draft.location == null || draft.location!.trim().isEmpty)
+                  ? null
+                  : draft.location!.trim(),
+              durationMinutes: null,
+            ),
+          ];
+    if (acts.isEmpty) return null;
+
+    try {
+      final apiDraft = PlanDraft(
+        vibeEmoji: draft.vibeEmoji,
+        title: draft.title,
+        startAt: draft.startAt,
+        description: draft.description,
+        activities: acts,
+        location: draft.location,
+        gameName: draft.gameName,
+        threshold: draft.threshold,
+        visibility: draft.visibility,
+      );
+      final plan = await _planRepo.updatePlan(planId, apiDraft);
+      _replacePlan(plan);
+      notifyListeners();
+      return plan;
+    } catch (e) {
+      apiProbeMessage = 'Update plan failed: $e';
+      notifyListeners();
+      return null;
     }
   }
 
@@ -421,6 +692,39 @@ class AppState extends ChangeNotifier {
     await users.prefetch([remote.creatorId, ...remote.tapInUserIds]);
   }
 
+  bool canUploadPlanPhotos(SquadPlan plan) {
+    final uid = currentUser?.id;
+    if (uid == null) return false;
+    if (isPlanCancelled(plan.id)) return false;
+    if (!plan.hasStarted) return false;
+    return isHost(plan) || plan.userHasTappedIn(uid);
+  }
+
+  Future<void> uploadPlanPhotos(String planId, List<XFile> files) async {
+    if (files.isEmpty) return;
+    try {
+      await _planPhotos.uploadPlanPhotos(planId, files);
+      await _syncPlanFromApi(planId);
+      notifyListeners();
+    } catch (e) {
+      apiProbeMessage = 'Upload photos failed: $e';
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> removePlanPhoto(String planId, String photoId) async {
+    try {
+      await _planPhotos.deletePlanPhoto(planId, photoId);
+      await _syncPlanFromApi(planId);
+      notifyListeners();
+    } catch (e) {
+      apiProbeMessage = 'Remove photo failed: $e';
+      notifyListeners();
+      rethrow;
+    }
+  }
+
   Future<TapInOutcome?> tapIn(String planId) async {
     final uid = currentUser?.id;
     if (uid == null) return null;
@@ -428,6 +732,7 @@ class AppState extends ChangeNotifier {
     final plan = _findPlan(planId);
     if (plan == null) return null;
     if (plan.status != PlanStatus.active) return null;
+    if (plan.hasStarted) return null;
     if (plan.userHasTappedIn(uid)) return null;
     try {
       final outcome = await _planRepo.tapIn(planId);

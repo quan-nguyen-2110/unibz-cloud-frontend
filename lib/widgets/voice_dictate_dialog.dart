@@ -268,25 +268,39 @@ class _VoiceDictateDialogState extends State<_VoiceDictateDialog> {
               ),
             ),
             const SizedBox(height: 16),
-            Row(
+            OverflowBar(
+              spacing: 8,
+              overflowSpacing: 8,
+              overflowAlignment: OverflowBarAlignment.end,
+              alignment: MainAxisAlignment.spaceBetween,
               children: [
                 TextButton.icon(
                   onPressed: () => Navigator.of(context).pop(),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
                   icon: const Icon(Icons.close, size: 18),
                   label: const Text('Cancel'),
                 ),
-                const Spacer(),
                 if (_phase == _VoicePhase.ready)
                   OutlinedButton.icon(
                     onPressed: _startRecording,
+                    style: OutlinedButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                    ),
                     icon: const Icon(Icons.refresh, size: 18),
                     label: const Text('Redo'),
                   ),
-                const SizedBox(width: 8),
                 FilledButton.icon(
                   onPressed: _phase == _VoicePhase.ready
                       ? () => Navigator.of(context).pop(_sample)
                       : null,
+                  style: FilledButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
                   icon: const Icon(Icons.check, size: 18),
                   label: const Text('Use this'),
                 ),

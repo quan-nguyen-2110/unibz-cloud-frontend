@@ -1,7 +1,11 @@
-// Migrated from squadUp-layout/src/routes/create.tsx (ec99d70)
+// Migrated from squadUp-layout/src/routes/create.tsx (9b5809d)
 
+import 'dart:io' show File;
+import 'dart:ui' show ImageFilter;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -9,6 +13,7 @@ import '../data/vibe_catalog.dart';
 import '../models/models.dart';
 import '../state/app_state.dart';
 import '../theme/squad_theme.dart';
+import 'plan_detail_screen.dart';
 import '../widgets/squad_layout_widgets.dart';
 import '../widgets/voice_dictate_dialog.dart';
 
@@ -26,10 +31,17 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
   bool _whenNow = true;
   DateTime? _whenDate;
   TimeOfDay _whenTime = const TimeOfDay(hour: 19, minute: 0);
-  int _maxPeople = 2;
+  bool _maxUnlimited = false;
+  final _customMax = TextEditingController(text: '2');
   PlanVisibility _visibility = PlanVisibility.public;
+  final List<XFile> _photos = [];
+  final ImagePicker _imagePicker = ImagePicker();
+  bool _posting = false;
 
   static const _counts = [2, 4, 6, 8, 10];
+  static const _maxPhotos = 5;
+  /// Matches layout `spotsLeft: null` — app uses threshold ≥ 99 as unlimited.
+  static const _unlimitedThreshold = 99;
 
   bool get _whenValid => _whenNow || _whenDate != null;
 
@@ -77,7 +89,8 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
             : const TimeOfDay(hour: 19, minute: 0);
       }
       _location.text = s.location;
-      _maxPeople = _nearestCount(s.people);
+      _maxUnlimited = false;
+      _customMax.text = '${_nearestCount(s.people)}';
     });
     final meta = kVibeMeta[s.vibe]!;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -97,10 +110,26 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
     return best;
   }
 
+  int get _parsedMaxPeople {
+    final n = int.tryParse(_customMax.text.trim());
+    if (n == null || n < 2) return 2;
+    return n.clamp(2, 100);
+  }
+
+  int get _postThreshold =>
+      _maxUnlimited ? _unlimitedThreshold : _parsedMaxPeople;
+
+  void _onCustomMaxChanged(String value) {
+    if (_maxUnlimited) return;
+    final n = int.tryParse(value);
+    if (n != null && n >= 1) setState(() {});
+  }
+
   @override
   void dispose() {
     _desc.dispose();
     _location.dispose();
+    _customMax.dispose();
     super.dispose();
   }
 
@@ -134,12 +163,18 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
   }
 
   Future<void> _post(BuildContext context) async {
+    if (_posting) return;
     if (!_whenValid) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Pick a date and time for your plan.')),
       );
       return;
     }
+
+    setState(() => _posting = true);
+    // Paint loading overlay before the network work starts.
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
 
     final desc = _desc.text.trim();
     final loc = _location.text.trim();
@@ -160,11 +195,27 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
         ),
       ],
       location: loc.isNotEmpty ? loc : 'TBD',
-      threshold: _maxPeople,
+      threshold: _postThreshold,
       visibility: _visibility,
     );
-    await context.read<AppState>().addPlanFromDraft(draft, PlanSource.manual);
+    SquadPlan? plan;
+    try {
+      plan = await context.read<AppState>().addPlanFromDraft(
+        draft,
+        PlanSource.manual,
+        localPhotos: List<XFile>.from(_photos),
+      );
+    } finally {
+      if (mounted) setState(() => _posting = false);
+    }
     if (!mounted) return;
+    if (plan == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not post plan. Try again.')),
+      );
+      return;
+    }
+
     HapticFeedback.mediumImpact();
     final privacyText = _visibility == PlanVisibility.private
         ? 'Only your friends will see it.'
@@ -181,6 +232,27 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
     setState(() {
       _whenNow = true;
       _whenDate = null;
+      _photos.clear();
+    });
+
+    final planId = plan.id;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => PlanDetailScreen(planId: planId),
+      ),
+    );
+  }
+
+  Future<void> _pickPhotos() async {
+    final remaining = _maxPhotos - _photos.length;
+    if (remaining <= 0) return;
+    final picked = await _imagePicker.pickMultiImage(
+      imageQuality: 85,
+      limit: remaining,
+    );
+    if (picked.isEmpty || !mounted) return;
+    setState(() {
+      _photos.addAll(picked.take(remaining));
     });
   }
 
@@ -194,7 +266,12 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
       SquadVibe.gaming,
     ];
 
-    return ListView(
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        AbsorbPointer(
+          absorbing: _posting,
+          child: ListView(
       padding: const EdgeInsets.only(bottom: 120),
       children: [
         ScreenHeader(
@@ -388,32 +465,239 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
               const SizedBox(height: 12),
               _SectionCard(
                 title: 'Max people',
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    for (final c in _counts)
-                      ChoiceChip(
-                        avatar: Icon(
-                          Icons.people_rounded,
-                          size: 18,
-                          color: _maxPeople == c
-                              ? Colors.white
-                              : SquadColors.muted,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Opacity(
+                            opacity: _maxUnlimited ? 0.5 : 1,
+                            child: Material(
+                              color: SquadColors.inputFill,
+                              borderRadius: BorderRadius.circular(16),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 4,
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.people_rounded,
+                                      size: 18,
+                                      color: SquadColors.primary,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: _maxUnlimited
+                                          ? const Padding(
+                                              padding: EdgeInsets.symmetric(
+                                                vertical: 10,
+                                              ),
+                                              child: Text(
+                                                '∞',
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: SquadColors.muted,
+                                                ),
+                                              ),
+                                            )
+                                          : TextField(
+                                              controller: _customMax,
+                                              keyboardType:
+                                                  TextInputType.number,
+                                              inputFormatters: [
+                                                FilteringTextInputFormatter
+                                                    .digitsOnly,
+                                              ],
+                                              style: const TextStyle(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                              decoration:
+                                                  const InputDecoration(
+                                                border: InputBorder.none,
+                                                isDense: true,
+                                                contentPadding:
+                                                    EdgeInsets.symmetric(
+                                                  vertical: 10,
+                                                ),
+                                              ),
+                                              onChanged: _onCustomMaxChanged,
+                                            ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
-                        label: Text('$c'),
-                        selected: _maxPeople == c,
-                        onSelected: (_) => setState(() => _maxPeople = c),
-                        selectedColor: SquadColors.hoops,
-                        labelStyle: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          color: _maxPeople == c
-                              ? Colors.white
-                              : SquadColors.muted,
+                        const SizedBox(width: 8),
+                        Material(
+                          color: _maxUnlimited
+                              ? SquadColors.hoops
+                              : SquadColors.inputFill,
+                          borderRadius: BorderRadius.circular(16),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(16),
+                            onTap: () => setState(
+                              () => _maxUnlimited = !_maxUnlimited,
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 14,
+                              ),
+                              child: Text(
+                                'Unlimited',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w800,
+                                  color: _maxUnlimited
+                                      ? Colors.white
+                                      : SquadColors.muted,
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
-                        backgroundColor: SquadColors.inputFill,
-                        side: BorderSide.none,
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final c in _counts)
+                          Material(
+                            color: !_maxUnlimited && _parsedMaxPeople == c
+                                ? SquadColors.primary.withValues(alpha: 0.15)
+                                : SquadColors.mutedBg,
+                            borderRadius: BorderRadius.circular(999),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(999),
+                              onTap: () => setState(() {
+                                _maxUnlimited = false;
+                                _customMax.text = '$c';
+                              }),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 8,
+                                ),
+                                child: Text(
+                                  '$c',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w800,
+                                    color: !_maxUnlimited &&
+                                            _parsedMaxPeople == c
+                                        ? SquadColors.primary
+                                        : SquadColors.muted,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              _SectionCard(
+                title: 'Photos',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Add up to $_maxPhotos pictures so people can feel the vibe.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: SquadColors.muted,
+                        fontWeight: FontWeight.w600,
                       ),
+                    ),
+                    const SizedBox(height: 12),
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        mainAxisSpacing: 8,
+                        crossAxisSpacing: 8,
+                      ),
+                      itemCount: _photos.length +
+                          (_photos.length < _maxPhotos ? 1 : 0),
+                      itemBuilder: (context, i) {
+                        if (i < _photos.length) {
+                          return Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(16),
+                                child: _CreatePhotoThumb(file: _photos[i]),
+                              ),
+                              Positioned(
+                                top: 4,
+                                right: 4,
+                                child: Material(
+                                  color: SquadColors.card
+                                      .withValues(alpha: 0.9),
+                                  shape: const CircleBorder(),
+                                  child: InkWell(
+                                    customBorder: const CircleBorder(),
+                                    onTap: () => setState(
+                                      () => _photos.removeAt(i),
+                                    ),
+                                    child: const Padding(
+                                      padding: EdgeInsets.all(4),
+                                      child: Icon(Icons.close, size: 16),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        }
+                        return Material(
+                          color: SquadColors.inputFill,
+                          borderRadius: BorderRadius.circular(16),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(16),
+                            onTap: _pickPhotos,
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.add_photo_alternate_outlined,
+                                  color: SquadColors.muted,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _photos.isEmpty ? 'Add' : 'More',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: SquadColors.muted,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '${_photos.length}/$_maxPhotos',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: SquadColors.muted,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -463,33 +747,46 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: SquadColors.ctaGradient,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: SquadColors.primaryGlowShadow,
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: () => _post(context),
+              Opacity(
+                opacity: _posting ? 0.7 : 1,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: SquadColors.ctaGradient,
                     borderRadius: BorderRadius.circular(20),
-                    child: const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 16),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.send_rounded, color: Colors.white),
-                          SizedBox(width: 10),
-                          Text(
-                            'Post Plan',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 17,
+                    boxShadow: SquadColors.primaryGlowShadow,
+                  ),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: _posting ? null : () => _post(context),
+                      borderRadius: BorderRadius.circular(20),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (_posting)
+                              const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                  color: Colors.white,
+                                ),
+                              )
+                            else
+                              const Icon(Icons.send_rounded, color: Colors.white),
+                            const SizedBox(width: 10),
+                            Text(
+                              _posting ? 'Posting…' : 'Post Plan',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 17,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -498,6 +795,10 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
             ],
           ),
         ),
+      ],
+    ),
+        ),
+        if (_posting) const _PostingPlanOverlay(),
       ],
     );
   }
@@ -637,6 +938,32 @@ class _CircleToolButton extends StatelessWidget {
   }
 }
 
+class _CreatePhotoThumb extends StatelessWidget {
+  const _CreatePhotoThumb({required this.file});
+
+  final XFile file;
+
+  @override
+  Widget build(BuildContext context) {
+    if (kIsWeb) {
+      return FutureBuilder<List<int>>(
+        future: file.readAsBytes(),
+        builder: (context, snap) {
+          if (!snap.hasData) {
+            return const ColoredBox(color: SquadColors.inputFill);
+          }
+          return Image.memory(
+            Uint8List.fromList(snap.data!),
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+          );
+        },
+      );
+    }
+    return Image.file(File(file.path), fit: BoxFit.cover);
+  }
+}
+
 class _SectionCard extends StatelessWidget {
   const _SectionCard({required this.title, required this.child});
 
@@ -730,6 +1057,59 @@ class _VibePickTile extends StatelessWidget {
                   ),
                 ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Layout `create.tsx` — full-screen overlay while plan is posting.
+class _PostingPlanOverlay extends StatelessWidget {
+  const _PostingPlanOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      child: Material(
+        color: Colors.transparent,
+        child: ColoredBox(
+          color: const Color(0xFFFDF2F7).withValues(alpha: 0.88),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(
+                    width: 64,
+                    height: 64,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 4,
+                      color: SquadColors.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Posting your plan…',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: SquadColors.text,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Hang tight for a moment',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: SquadColors.muted,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),

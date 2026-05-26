@@ -8,4 +8,5 @@ abstract class PlanRepository {
   Future<TapInOutcome?> tapIn(String planId);
   Future<void> tapOut(String planId);
   Future<void> cancelPlan(String planId);
+  Future<SquadPlan> updatePlan(String planId, PlanDraft draft);
 }

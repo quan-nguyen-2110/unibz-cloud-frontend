@@ -75,6 +75,22 @@ class SquadUser {
   final String? avatarUrl;
 }
 
+/// Plan gallery image (API + layout `PlanPhoto`).
+@immutable
+class PlanPhoto {
+  const PlanPhoto({
+    required this.id,
+    required this.url,
+    required this.uploaderId,
+    this.createdAt,
+  });
+
+  final String id;
+  final String url;
+  final String uploaderId;
+  final DateTime? createdAt;
+}
+
 @immutable
 class PlanDraft {
   const PlanDraft({
@@ -150,8 +166,10 @@ class SquadPlan {
     List<String>? tapInUserIds,
     DateTime? createdAt,
     this.visibility = PlanVisibility.public,
+    List<PlanPhoto>? photos,
   })  : activities = activities ?? const [],
         tapInUserIds = tapInUserIds ?? [],
+        photos = photos ?? const [],
         createdAt = createdAt ?? DateTime.now();
 
   final String id;
@@ -172,8 +190,11 @@ class SquadPlan {
   final List<String> tapInUserIds;
   final DateTime createdAt;
   final PlanVisibility visibility;
+  final List<PlanPhoto> photos;
 
   int get tapInCount => tapInUserIds.length;
+
+  bool get hasStarted => !DateTime.now().toUtc().isBefore(startAt.toUtc());
 
   bool get isPrivate => visibility == PlanVisibility.private;
 
@@ -200,4 +221,105 @@ class TapInOutcome {
   const TapInOutcome({required this.squadLocked});
 
   final bool squadLocked;
+}
+
+/// In-app inbox item (e.g. host cancelled a plan you joined).
+@immutable
+class SquadNotification {
+  const SquadNotification({
+    required this.id,
+    required this.type,
+    required this.title,
+    required this.body,
+    required this.read,
+    required this.createdAt,
+    this.planId,
+    this.hostId,
+    this.hostName,
+    this.planTitle,
+  });
+
+  final String id;
+  final String type;
+  final String? planId;
+  final String title;
+  final String body;
+  final bool read;
+  final DateTime createdAt;
+  final String? hostId;
+  final String? hostName;
+  final String? planTitle;
+
+  bool get isPlanCancelled => type == 'plan_cancelled';
+
+  bool get isPlanReminder => type == 'plan_reminder';
+
+  bool get isFriendRequest => type == 'friend_request';
+
+  bool get isNewAttendee => type == 'new_attendee';
+
+  bool get isAttendeeLeft => type == 'attendee_left';
+}
+
+/// Realtime inbox payload from `/hub/feed` (planCancelled, newAttendee, attendeeLeft).
+@immutable
+class InboxNotificationHubEvent {
+  const InboxNotificationHubEvent({
+    required this.type,
+    required this.title,
+    required this.body,
+    this.notificationId,
+    this.planId,
+    this.hostId,
+    this.hostName,
+    this.planTitle,
+    this.attendeeId,
+    this.attendeeName,
+  });
+
+  final String type;
+  final String title;
+  final String body;
+  final String? notificationId;
+  final String? planId;
+  final String? hostId;
+  final String? hostName;
+  final String? planTitle;
+  final String? attendeeId;
+  final String? attendeeName;
+
+  bool get isPlanCancelled => type == 'plan_cancelled';
+}
+
+/// Realtime payload from `/hub/feed` `planCancelled` event.
+@immutable
+class PlanCancelledHubEvent {
+  const PlanCancelledHubEvent({
+    required this.planId,
+    required this.message,
+    this.notificationId,
+    this.hostId,
+    this.hostName,
+    this.planTitle,
+  });
+
+  final String planId;
+  final String message;
+  final String? notificationId;
+  final String? hostId;
+  final String? hostName;
+  final String? planTitle;
+
+  InboxNotificationHubEvent toInboxEvent() {
+    return InboxNotificationHubEvent(
+      type: 'plan_cancelled',
+      title: 'Plan cancelled',
+      body: message,
+      notificationId: notificationId,
+      planId: planId,
+      hostId: hostId,
+      hostName: hostName,
+      planTitle: planTitle,
+    );
+  }
 }

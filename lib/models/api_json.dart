@@ -50,6 +50,16 @@ PlanActivity planActivityFromJson(Map<String, dynamic> json) {
   );
 }
 
+PlanPhoto planPhotoFromJson(Map<String, dynamic> json) {
+  final created = json['createdAt'] as String?;
+  return PlanPhoto(
+    id: json['id'] as String,
+    url: json['url'] as String,
+    uploaderId: json['uploaderId'] as String,
+    createdAt: created != null ? DateTime.parse(created) : null,
+  );
+}
+
 Map<String, dynamic> planActivityToJson(PlanActivity a) => {
       'emoji': a.emoji,
       'title': a.title,
@@ -60,6 +70,10 @@ Map<String, dynamic> planActivityToJson(PlanActivity a) => {
 SquadPlan squadPlanFromJson(Map<String, dynamic> json) {
   final activities = (json['activities'] as List<dynamic>? ?? [])
       .map((e) => planActivityFromJson(e as Map<String, dynamic>))
+      .toList();
+
+  final photos = (json['photos'] as List<dynamic>? ?? [])
+      .map((e) => planPhotoFromJson(e as Map<String, dynamic>))
       .toList();
 
   return SquadPlan(
@@ -83,6 +97,7 @@ SquadPlan squadPlanFromJson(Map<String, dynamic> json) {
         ? DateTime.parse(json['createdAt'] as String)
         : DateTime.now(),
     visibility: _visibilityFromJson(json['visibility'] as String?),
+    photos: photos,
   );
 }
 
@@ -102,6 +117,85 @@ Map<String, dynamic> planDraftToJson(PlanDraft draft, PlanSource source) => {
 
 TapInOutcome tapInOutcomeFromJson(Map<String, dynamic> json) {
   return TapInOutcome(squadLocked: json['squadLocked'] as bool? ?? false);
+}
+
+SquadNotification squadNotificationFromJson(Map<String, dynamic> json) {
+  final metadata = json['metadata'];
+  Map<String, dynamic>? meta;
+  if (metadata is Map<String, dynamic>) {
+    meta = metadata;
+  } else if (metadata is Map) {
+    meta = Map<String, dynamic>.from(metadata);
+  }
+  return SquadNotification(
+    id: json['id'] as String? ?? '',
+    type: json['type'] as String? ?? 'unknown',
+    planId: json['planId'] as String?,
+    title: json['title'] as String? ?? 'Notification',
+    body: json['body'] as String? ?? '',
+    read: json['read'] as bool? ?? false,
+    createdAt: json['createdAt'] != null
+        ? DateTime.parse(json['createdAt'] as String)
+        : DateTime.now(),
+    hostId: meta?['hostId'] as String?,
+    hostName: meta?['hostName'] as String?,
+    planTitle: meta?['planTitle'] as String?,
+  );
+}
+
+PlanCancelledHubEvent planCancelledHubEventFromJson(
+  Map<String, dynamic> json,
+) {
+  return PlanCancelledHubEvent(
+    planId: json['planId'] as String? ?? '',
+    message: json['message'] as String? ??
+        'A plan you joined was cancelled.',
+    notificationId: json['notificationId'] as String?,
+    hostId: json['hostId'] as String?,
+    hostName: json['hostName'] as String?,
+    planTitle: json['planTitle'] as String?,
+  );
+}
+
+InboxNotificationHubEvent inboxNotificationHubEventFromJson(
+  String type, {
+  required Map<String, dynamic> json,
+}) {
+  final message = json['message'] as String? ?? '';
+  switch (type) {
+    case 'plan_cancelled':
+      return planCancelledHubEventFromJson(json).toInboxEvent();
+    case 'new_attendee':
+      return InboxNotificationHubEvent(
+        type: 'new_attendee',
+        title: 'Someone joined your plan',
+        body: message.isNotEmpty ? message : 'Someone joined your plan.',
+        notificationId: json['notificationId'] as String?,
+        planId: json['planId'] as String?,
+        planTitle: json['planTitle'] as String?,
+        attendeeId: json['attendeeId'] as String?,
+        attendeeName: json['attendeeName'] as String?,
+      );
+    case 'attendee_left':
+      return InboxNotificationHubEvent(
+        type: 'attendee_left',
+        title: 'Someone left your plan',
+        body: message.isNotEmpty ? message : 'Someone left your plan.',
+        notificationId: json['notificationId'] as String?,
+        planId: json['planId'] as String?,
+        planTitle: json['planTitle'] as String?,
+        attendeeId: json['attendeeId'] as String?,
+        attendeeName: json['attendeeName'] as String?,
+      );
+    default:
+      return InboxNotificationHubEvent(
+        type: type,
+        title: 'Notification',
+        body: message,
+        notificationId: json['notificationId'] as String?,
+        planId: json['planId'] as String?,
+      );
+  }
 }
 
 SquadUser squadUserFromJson(Map<String, dynamic> json) {

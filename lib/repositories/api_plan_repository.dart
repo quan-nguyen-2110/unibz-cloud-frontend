@@ -53,6 +53,15 @@ class ApiPlanRepository implements PlanRepository {
     await _client.deleteJson('/plans/$planId');
   }
 
+  @override
+  Future<SquadPlan> updatePlan(String planId, PlanDraft draft) async {
+    final data = await _client.putJson(
+      '/plans/$planId',
+      body: planDraftToJson(draft, PlanSource.manual),
+    );
+    return squadPlanFromJson(data['plan'] as Map<String, dynamic>);
+  }
+
   Future<List<String>> fetchTapIns(String planId) async {
     final data = await _client.getJson('/plans/$planId/tap-ins');
     return (data['tapInUserIds'] as List<dynamic>? ?? [])

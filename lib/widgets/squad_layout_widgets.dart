@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -174,17 +176,44 @@ class SquadUserAvatar extends StatelessWidget {
           ],
         ),
         child: ClipOval(
-          child: Image.network(
-            url,
-            fit: BoxFit.cover,
-            width: size,
-            height: size,
-            errorBuilder: (_, __, ___) => _initials(),
-          ),
+          child: _avatarImage(url, size, _initials),
         ),
       );
     }
     return _initials();
+  }
+
+  /// Layout `PhoneShell` Avatar — network URL or `data:` image (edit-profile mock).
+  static Widget _avatarImage(
+    String url,
+    double size,
+    Widget Function() onError,
+  ) {
+    if (url.startsWith('data:')) {
+      final comma = url.indexOf(',');
+      if (comma > 0) {
+        try {
+          final bytes = base64Decode(url.substring(comma + 1));
+          return Image.memory(
+            bytes,
+            fit: BoxFit.cover,
+            width: size,
+            height: size,
+            gaplessPlayback: true,
+            errorBuilder: (_, _, _) => onError(),
+          );
+        } catch (_) {
+          return onError();
+        }
+      }
+    }
+    return Image.network(
+      url,
+      fit: BoxFit.cover,
+      width: size,
+      height: size,
+      errorBuilder: (_, _, _) => onError(),
+    );
   }
 
   Widget _initials() {
@@ -232,6 +261,75 @@ class SquadInitialsAvatar extends StatelessWidget {
           color: Colors.white,
           fontWeight: FontWeight.w800,
           fontSize: size * 0.32,
+        ),
+      ),
+    );
+  }
+}
+
+/// Rounded header control (layout: `h-11 w-11 rounded-2xl bg-card` on home / notifications).
+class SquadHeaderIconButton extends StatelessWidget {
+  const SquadHeaderIconButton({
+    super.key,
+    required this.icon,
+    required this.onTap,
+    this.badgeCount = 0,
+    this.semanticLabel,
+  });
+
+  final IconData icon;
+  final VoidCallback onTap;
+  final int badgeCount;
+  final String? semanticLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: semanticLabel,
+      button: true,
+      child: Material(
+        color: SquadColors.card,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(10),
+                child: Icon(icon, size: 22),
+              ),
+              if (badgeCount > 0)
+                Positioned(
+                  right: -2,
+                  top: -2,
+                  child: Container(
+                    constraints: const BoxConstraints(
+                      minWidth: 18,
+                      minHeight: 18,
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    decoration: BoxDecoration(
+                      color: SquadColors.primary,
+                      shape: BoxShape.circle,
+                      border: Border.fromBorderSide(
+                        BorderSide(color: SquadColors.card, width: 2),
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      badgeCount > 9 ? '9+' : '$badgeCount',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );

@@ -15,13 +15,30 @@ import '../theme/squad_theme.dart';
 import '../widgets/cancel_plan_confirm_dialog.dart';
 import '../widgets/edit_profile_dialog.dart';
 import '../widgets/leave_plan_confirm_dialog.dart';
+import '../widgets/plan_photos_section.dart';
 import '../widgets/squad_layout_widgets.dart';
+import 'edit_plan_screen.dart';
+import 'recaps_screen.dart';
 
 /// Plan detail — migrated from `squadUp-layout` `plan.$planId.tsx`.
-class PlanDetailScreen extends StatelessWidget {
+class PlanDetailScreen extends StatefulWidget {
   const PlanDetailScreen({super.key, required this.planId});
 
   final String planId;
+
+  @override
+  State<PlanDetailScreen> createState() => _PlanDetailScreenState();
+}
+
+class _PlanDetailScreenState extends State<PlanDetailScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<AppState>().refreshPlanDetail(widget.planId);
+    });
+  }
 
   static String _formatPlanTime(DateTime t) {
     final now = DateTime.now();
@@ -49,7 +66,7 @@ class PlanDetailScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<AppState>(
       builder: (context, app, _) {
-        final plan = app.tryPlanById(planId);
+        final plan = app.tryPlanById(widget.planId);
         if (plan == null) {
           return DecoratedBox(
             decoration: const BoxDecoration(gradient: SquadColors.backgroundGradient),
@@ -79,13 +96,16 @@ class PlanDetailScreen extends StatelessWidget {
         final uid = app.currentUser?.id;
         final cancelled = app.isPlanCancelled(plan.id);
         final userIsHost = app.isHost(plan);
+        final canEdit = app.canEditPlan(plan);
         final locked = plan.status == PlanStatus.locked;
         final joined = uid != null && plan.userHasTappedIn(uid);
         final canJoin = !cancelled &&
             plan.status == PlanStatus.active &&
+            !plan.hasStarted &&
             uid != null &&
             !joined &&
             !userIsHost;
+        final canUploadPhotos = app.canUploadPlanPhotos(plan);
         final spotsOpen = locked
             ? 0
             : (plan.threshold - plan.tapInCount).clamp(0, plan.threshold);
@@ -129,19 +149,46 @@ class PlanDetailScreen extends StatelessWidget {
                                       icon: Icons.arrow_back_rounded,
                                       onTap: () => Navigator.pop(context),
                                     ),
-                                    _RoundIconButton(
-                                      icon: Icons.share_rounded,
-                                      onTap: () {
-                                        ScaffoldMessenger.of(context)
-                                            .showSnackBar(
-                                          const SnackBar(
-                                            content: Text(
-                                              'Share link (prototype)',
+                                    if (canEdit)
+                                      _ProfileEditButton(
+                                        onTap: () async {
+                                          final saved =
+                                              await Navigator.of(context)
+                                                  .push<bool>(
+                                            MaterialPageRoute<bool>(
+                                              builder: (_) =>
+                                                  EditPlanScreen(plan: plan),
                                             ),
-                                          ),
-                                        );
-                                      },
-                                    ),
+                                          );
+                                          if (!context.mounted) return;
+                                          if (saved == true) {
+                                            await app.refreshPlanDetail(
+                                              widget.planId,
+                                            );
+                                            ScaffoldMessenger.of(context)
+                                                .showSnackBar(
+                                              const SnackBar(
+                                                content:
+                                                    Text('Plan updated'),
+                                              ),
+                                            );
+                                          }
+                                        },
+                                      )
+                                    else
+                                      _RoundIconButton(
+                                        icon: Icons.share_rounded,
+                                        onTap: () {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                'Share link (prototype)',
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
                                   ],
                                 ),
                                 const SizedBox(height: 20),
@@ -315,6 +362,10 @@ class PlanDetailScreen extends StatelessWidget {
                                     ),
                                   ),
                                   const SizedBox(height: 16),
+                                  PlanPhotosSection(
+                                    plan: plan,
+                                    canUpload: canUploadPhotos,
+                                  ),
                                   _DetailCard(
                                     child: Column(
                                       crossAxisAlignment:
@@ -759,7 +810,7 @@ class _JoinBar extends StatelessWidget {
   }
 }
 
-/// User profile — migrated from `squadUp-layout` `profile.$userId.tsx`.
+/// User profile — migrated from `squadUp-layout` `profile.$userId.tsx` (9b5809d).
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key, required this.userId});
 
@@ -773,19 +824,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   SquadUser? _user;
   bool _loading = true;
   String? _loadError;
-
-  static String _planSubtitle(SquadPlan p) {
-    final clock = DateFormat('h:mm a');
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final planDay = DateTime(p.startAt.year, p.startAt.month, p.startAt.day);
-    final timeStr = planDay == today
-        ? 'Today, ${clock.format(p.startAt)}'
-        : '${DateFormat.MMMd().format(p.startAt)}, ${clock.format(p.startAt)}';
-    final loc = p.location?.trim();
-    final place = (loc != null && loc.isNotEmpty) ? loc : 'TBD';
-    return '$timeStr · $place';
-  }
 
   @override
   void initState() {
@@ -898,7 +936,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final displayUser =
             mergeProfileWithCurrentUser(user, app.currentUser);
         final locationLine = profileLocationLine(displayUser);
-        final userPlans = app.plansInvolvingUser(widget.userId);
         final interests = displayUser.interests ?? const <String>[];
         final bioText = displayUser.bio?.trim() ?? '';
 
@@ -956,11 +993,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 Center(
                                   child: Column(
                                     children: [
-                                      SquadInitialsAvatar(
-                                        initials: displayInitials(
-                                          displayUser.displayName,
-                                        ),
-                                        background: avatarColorForKey(widget.userId),
+                                      SquadUserAvatar(
+                                        user: displayUser,
                                         size: 80,
                                       ),
                                       const SizedBox(height: 12),
@@ -1043,115 +1077,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       ),
                                     ),
                                   ),
-                                  if (interests.isNotEmpty || isMe) ...[
+                                  if (interests.isNotEmpty) ...[
                                     const SizedBox(height: 16),
                                     _ProfileCard(
                                       title: 'INTERESTS',
-                                      child: interests.isEmpty
-                                          ? Text(
-                                              'No interests yet. Tap Edit to add some.',
-                                              style: TextStyle(
-                                                fontSize: 15,
-                                                height: 1.45,
-                                                color: SquadColors.muted,
-                                                fontWeight: FontWeight.w500,
-                                                fontStyle: FontStyle.italic,
-                                              ),
-                                            )
-                                          : Wrap(
-                                              spacing: 8,
-                                              runSpacing: 8,
-                                              children: [
-                                                for (final i in interests)
-                                                  Container(
-                                                    padding:
-                                                        const EdgeInsets
-                                                            .symmetric(
-                                                      horizontal: 12,
-                                                      vertical: 6,
-                                                    ),
-                                                    decoration: BoxDecoration(
-                                                      color:
-                                                          SquadColors.mutedBg,
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                        999,
-                                                      ),
-                                                    ),
-                                                    child: Text(
-                                                      i,
-                                                      style: const TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.w700,
-                                                        fontSize: 13,
-                                                      ),
-                                                    ),
-                                                  ),
-                                              ],
-                                            ),
-                                    ),
-                                  ],
-                                  if (userPlans.isNotEmpty) ...[
-                                    const SizedBox(height: 16),
-                                    _ProfileCard(
-                                      title: 'IN ON',
-                                      child: Column(
+                                      child: Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
                                         children: [
-                                          for (final p in userPlans)
-                                            Padding(
-                                              padding: const EdgeInsets.only(
-                                                bottom: 8,
+                                          for (final i in interests)
+                                            Container(
+                                              padding: const EdgeInsets
+                                                  .symmetric(
+                                                horizontal: 12,
+                                                vertical: 6,
                                               ),
-                                              child: Material(
-                                                color: SquadColors.inputFill,
+                                              decoration: BoxDecoration(
+                                                color: SquadColors.mutedBg,
                                                 borderRadius:
-                                                    BorderRadius.circular(16),
-                                                child: InkWell(
-                                                  borderRadius:
-                                                      BorderRadius.circular(16),
-                                                  onTap: () {
-                                                    Navigator.of(context).push(
-                                                      MaterialPageRoute<void>(
-                                                        builder: (_) =>
-                                                            PlanDetailScreen(
-                                                          planId: p.id,
-                                                        ),
-                                                      ),
-                                                    );
-                                                  },
-                                                  child: Padding(
-                                                    padding:
-                                                        const EdgeInsets.all(
-                                                      12,
-                                                    ),
-                                                    child: Column(
-                                                      crossAxisAlignment:
-                                                          CrossAxisAlignment
-                                                              .start,
-                                                      children: [
-                                                        Text(
-                                                          p.title,
-                                                          style:
-                                                              const TextStyle(
-                                                            fontWeight:
-                                                                FontWeight.w800,
-                                                            fontSize: 15,
-                                                          ),
-                                                        ),
-                                                        const SizedBox(height: 4),
-                                                        Text(
-                                                          _planSubtitle(p),
-                                                          style: TextStyle(
-                                                            fontSize: 12,
-                                                            color: SquadColors
-                                                                .muted,
-                                                            fontWeight:
-                                                                FontWeight.w600,
-                                                          ),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ),
+                                                    BorderRadius.circular(999),
+                                              ),
+                                              child: Text(
+                                                i,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w700,
+                                                  fontSize: 13,
                                                 ),
                                               ),
                                             ),
@@ -1160,15 +1110,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     ),
                                   ],
                                   const SizedBox(height: 16),
-                                  if (isMe)
+                                  if (isMe) ...[
+                                    _ProfileRecapsButton(
+                                      onPressed: () {
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute<void>(
+                                            builder: (_) =>
+                                                const RecapsScreen(),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                    const SizedBox(height: 12),
                                     _ProfileLogoutButton(
                                       onPressed: () {
                                         app.logout();
                                         Navigator.of(context)
                                             .popUntil((route) => route.isFirst);
                                       },
-                                    )
-                                  else
+                                    ),
+                                  ] else
                                     _ProfileFriendActions(
                                       userId: widget.userId,
                                       displayName: displayUser.displayName,
@@ -1405,6 +1366,45 @@ class _ProfileEditButton extends StatelessWidget {
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
                   color: SquadColors.text,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Layout: `profile.$userId.tsx` — secondary "Recaps" CTA (own profile).
+class _ProfileRecapsButton extends StatelessWidget {
+  const _ProfileRecapsButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: SquadColors.secondary,
+      borderRadius: BorderRadius.circular(16),
+      elevation: 2,
+      shadowColor: SquadColors.primary.withValues(alpha: 0.08),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onPressed,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.image_outlined, size: 22, color: Colors.white),
+              const SizedBox(width: 8),
+              Text(
+                'Recaps',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
                 ),
               ),
             ],

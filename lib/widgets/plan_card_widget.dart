@@ -66,8 +66,13 @@ class PlanCardWidget extends StatelessWidget {
 
     final locked = plan.status == PlanStatus.locked;
     final uid = currentUserId;
+    final isHost = uid != null && plan.creatorId == uid;
     final joined = uid != null && plan.userHasTappedIn(uid);
-    final canJoin = plan.status == PlanStatus.active && uid != null && !joined;
+    final canJoin = plan.status == PlanStatus.active &&
+        !plan.hasStarted &&
+        uid != null &&
+        !joined &&
+        !isHost;
 
     final vibe = squadVibeForPlan(plan);
     final vibeMeta = vibe != null ? kVibeMeta[vibe]! : null;
@@ -267,15 +272,46 @@ class PlanCardWidget extends StatelessWidget {
                         padding: const EdgeInsets.only(right: 8),
                         child: Icon(Icons.lock_rounded, color: SquadColors.secondary, size: 20),
                       ),
-                    _DownButton(
-                      planTitle: plan.title,
-                      locked: locked,
-                      joined: joined,
-                      canJoin: canJoin,
-                      onTapIn: onTapIn,
-                      onTapOut: onTapOut,
-                      onLocked: onLocked,
-                    ),
+                    if (isHost)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: SquadColors.primary.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.workspace_premium_rounded,
+                              size: 18,
+                              color: SquadColors.primary,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Hosting',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 14,
+                                color: SquadColors.primary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      _DownButton(
+                        planTitle: plan.title,
+                        locked: locked,
+                        joined: joined,
+                        canJoin: canJoin,
+                        onTapIn: onTapIn,
+                        onTapOut: onTapOut,
+                        onLocked: onLocked,
+                      ),
                   ],
                 ),
               ],
@@ -286,7 +322,7 @@ class PlanCardWidget extends StatelessWidget {
   }
 }
 
-/// Public / Friends badge — `squadUp-layout` `index.tsx` (ec99d70).
+/// Public / Friends badge — `squadUp-layout` `index.tsx` (a960bb6).
 class _PlanVisibilityBadge extends StatelessWidget {
   const _PlanVisibilityBadge({required this.isPrivate});
 

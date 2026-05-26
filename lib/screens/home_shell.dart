@@ -2,12 +2,15 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../state/app_state.dart';
 import '../theme/squad_theme.dart';
 import 'create_tab_screen.dart';
 import 'discover_screen.dart';
 import 'feed_screen.dart';
-import 'recaps_screen.dart';
+import 'my_plans_screen.dart';
+import 'plan_detail_screen.dart';
 
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
@@ -19,6 +22,7 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   var _index = 0;
   late ConfettiController _confetti;
+  String? _lastShownToast;
 
   @override
   void initState() {
@@ -36,8 +40,39 @@ class _HomeShellState extends State<HomeShell> {
     _confetti.play();
   }
 
+  void _maybeShowPlanCancelledToast(BuildContext context, AppState app) {
+    final toast = app.planCancelledToast;
+    if (toast == null || toast == _lastShownToast) return;
+    _lastShownToast = toast;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(toast),
+          action: SnackBarAction(
+            label: 'View',
+            onPressed: () {
+              final planId = app.planCancelledToastPlanId;
+              if (planId == null || planId.isEmpty) return;
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => PlanDetailScreen(planId: planId),
+                ),
+              );
+            },
+          ),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+      app.clearPlanCancelledToast();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    final app = context.watch<AppState>();
+    _maybeShowPlanCancelledToast(context, app);
+
     return DecoratedBox(
       decoration: const BoxDecoration(gradient: SquadColors.backgroundGradient),
       child: Stack(
@@ -51,7 +86,10 @@ class _HomeShellState extends State<HomeShell> {
                 FeedScreen(onSquadLocked: _celebrate),
                 const DiscoverScreen(),
                 const CreateTabScreen(),
-                const RecapsScreen(),
+                MyPlansScreen(
+                  onSwitchToHome: () => setState(() => _index = 0),
+                  onSwitchToCreate: () => setState(() => _index = 2),
+                ),
               ],
             ),
             bottomNavigationBar: _SquadBottomNav(
@@ -127,8 +165,8 @@ class _SquadBottomNav extends StatelessWidget {
                   onTap: () => onSelect(2),
                 ),
                 _SideNavItem(
-                  icon: Icons.photo_library_outlined,
-                  label: 'Recaps',
+                  icon: Icons.calendar_month_rounded,
+                  label: 'My Plans',
                   selected: index == 3,
                   onTap: () => onSelect(3),
                 ),
@@ -194,7 +232,7 @@ class _CenterCreateItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Transform.translate(
-      offset: const Offset(0, -22),
+      offset: const Offset(0, -10),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(999),
