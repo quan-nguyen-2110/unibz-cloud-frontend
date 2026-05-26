@@ -1,3 +1,5 @@
+// Feed home — `squadUp-layout` `index.tsx` (ec99d70: privacy badges + filtering).
+
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -29,6 +31,18 @@ class FeedScreen extends StatefulWidget {
 class _FeedScreenState extends State<FeedScreen> {
   SquadVibe _filter = SquadVibe.all;
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<AppState>().refreshSquadFromApi();
+    });
+  }
+
+  Future<void> _onRefresh() async {
+    await context.read<AppState>().refreshSquadFromApi();
+  }
+
   int _goingCount(AppState app) {
     final uid = app.currentUser?.id;
     if (uid == null) return 0;
@@ -58,8 +72,14 @@ class _FeedScreenState extends State<FeedScreen> {
             ? 'See what friends are up to — tap I\'m down to join.'
             : "You're in on $going plan${going == 1 ? '' : 's'}";
 
-        return CustomScrollView(
-          slivers: [
+        return RefreshIndicator(
+          onRefresh: _onRefresh,
+          color: SquadColors.primary,
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(
+              parent: BouncingScrollPhysics(),
+            ),
+            slivers: [
             SliverToBoxAdapter(
               child: ScreenHeader(
                 title: 'Anyone down?',
@@ -97,7 +117,7 @@ class _FeedScreenState extends State<FeedScreen> {
                       Expanded(
                         child: Text(
                           app.apiProbeMessage ??
-                              'API ${AppConfig.apiBaseUrl}${AppConfig.useApi ? " (live)" : ""}',
+                              'API ${AppConfig.apiBaseUrl}',
                           style: Theme.of(context).textTheme.bodySmall,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
@@ -255,6 +275,7 @@ class _FeedScreenState extends State<FeedScreen> {
                 ),
             ],
           ],
+          ),
         );
       },
     );

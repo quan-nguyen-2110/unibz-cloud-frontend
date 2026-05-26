@@ -2,13 +2,11 @@
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:provider/provider.dart';
 
-import '../config/app_config.dart';
 import '../services/auth_service.dart';
-import '../state/app_state.dart';
 import '../theme/squad_theme.dart';
 import '../widgets/auth_flow_widgets.dart';
+import '../widgets/auth_password_rules.dart';
 import 'verify_email_screen.dart';
 
 class SignupScreen extends StatefulWidget {
@@ -65,40 +63,23 @@ class _SignupScreenState extends State<SignupScreen> {
         );
         return;
       }
-      if (password.length < 8) {
-        setState(() => _error = 'Password must be at least 8 characters.');
+      if (!authPasswordRulesOk(password)) {
+        setState(() => _error = 'Password does not meet the requirements.');
         return;
       }
 
-      if (AppConfig.useApi && !AppConfig.useDevAuth) {
-        await _auth.signUp(
-          email: email,
-          password: password,
-          username: username,
-          displayName: displayName,
-        );
-        if (!mounted) return;
-        Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => VerifyEmailScreen(email: email),
-          ),
-        );
-        return;
-      }
-
-      try {
-        await _auth.signUp(
-          email: email,
-          password: password,
-          username: username,
-          displayName: displayName,
-        );
-      } on AuthException {
-        await _auth.signUpDemo();
-      }
-
+      await _auth.signUp(
+        email: email,
+        password: password,
+        username: username,
+        displayName: displayName,
+      );
       if (!mounted) return;
-      await context.read<AppState>().completeLogin(email: email);
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => VerifyEmailScreen(email: email),
+        ),
+      );
     } on AuthException catch (e) {
       setState(() => _error = e.message);
     } finally {
@@ -137,6 +118,7 @@ class _SignupScreenState extends State<SignupScreen> {
                         error: _error,
                         onTogglePassword: () =>
                             setState(() => _showPassword = !_showPassword),
+                        onPasswordChanged: () => setState(() {}),
                         onSubmit: _submit,
                       ),
                     ),
@@ -161,6 +143,7 @@ class _SignupFormCard extends StatelessWidget {
     required this.loading,
     required this.error,
     required this.onTogglePassword,
+    required this.onPasswordChanged,
     required this.onSubmit,
   });
 
@@ -172,6 +155,7 @@ class _SignupFormCard extends StatelessWidget {
   final bool loading;
   final String? error;
   final VoidCallback onTogglePassword;
+  final VoidCallback onPasswordChanged;
   final VoidCallback onSubmit;
 
   @override
@@ -231,6 +215,7 @@ class _SignupFormCard extends StatelessWidget {
               hint: 'At least 8 characters',
               obscureText: !showPassword,
               prefix: Icons.lock_outline_rounded,
+              onChanged: (_) => onPasswordChanged(),
               suffix: IconButton(
                 icon: Icon(
                   showPassword
@@ -242,6 +227,8 @@ class _SignupFormCard extends StatelessWidget {
                 onPressed: onTogglePassword,
               ),
             ),
+            const SizedBox(height: 8),
+            AuthPasswordRulesList(password: password.text),
             if (error != null) ...[
               const SizedBox(height: 12),
               Text(

@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import '../config/app_config.dart';
 import '../services/auth_service.dart';
 import '../theme/squad_theme.dart';
 import '../widgets/auth_flow_widgets.dart';
@@ -132,15 +131,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
 
     setState(() => _loading = true);
     try {
-      if (AppConfig.useApi && !AppConfig.useDevAuth) {
-        await _auth.confirmSignUp(email: widget.email, code: _code);
-      } else {
-        try {
-          await _auth.confirmSignUp(email: widget.email, code: _code);
-        } on AuthException {
-          await Future<void>.delayed(const Duration(milliseconds: 600));
-        }
-      }
+      await _auth.confirmSignUp(email: widget.email, code: _code);
       if (!mounted) return;
       Navigator.of(context).popUntil((route) => route.isFirst);
       Navigator.of(context).pushReplacement(
@@ -165,15 +156,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
       _resending = true;
     });
     try {
-      if (AppConfig.useApi && !AppConfig.useDevAuth) {
-        await _auth.resendConfirmationCode(widget.email);
-      } else {
-        try {
-          await _auth.resendConfirmationCode(widget.email);
-        } on AuthException {
-          // layout stub — cooldown only
-        }
-      }
+      await _auth.resendConfirmationCode(widget.email);
       _startCooldown();
     } on AuthException catch (e) {
       setState(() => _error = e.message);

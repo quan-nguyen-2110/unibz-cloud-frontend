@@ -87,8 +87,29 @@ class ApiClient {
     if (res.statusCode >= 200 && res.statusCode < 300) {
       return parsed ?? {};
     }
-    final msg = parsed?['error']?.toString() ?? res.body;
-    throw ApiException(res.statusCode, msg.isEmpty ? 'HTTP ${res.statusCode}' : msg);
+    final msg = _errorMessage(parsed, res.body, res.statusCode);
+    throw ApiException(res.statusCode, msg);
+  }
+
+  static String _errorMessage(
+    Map<String, dynamic>? parsed,
+    String body,
+    int statusCode,
+  ) {
+    final err = parsed?['error'];
+    if (err != null) return err.toString();
+    final errors = parsed?['errors'];
+    if (errors is List && errors.isNotEmpty) {
+      final first = errors.first;
+      if (first is Map) {
+        final path = first['path']?.toString();
+        final msg = first['msg']?.toString();
+        if (path != null && msg != null) return '$path: $msg';
+        if (msg != null) return msg;
+      }
+    }
+    if (body.isNotEmpty) return body;
+    return 'HTTP $statusCode';
   }
 
   Future<bool> checkHealth() async {

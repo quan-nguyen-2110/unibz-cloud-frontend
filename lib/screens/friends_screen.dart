@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../config/app_config.dart';
 import '../models/models.dart';
 import '../state/app_state.dart';
+import '../services/profile_user_resolver.dart';
 import '../theme/squad_theme.dart';
 import '../widgets/squad_layout_widgets.dart';
 import 'plan_detail_screen.dart';
@@ -28,10 +28,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final app = context.read<AppState>();
-      if (AppConfig.useApi) {
-        app.refreshFriendsFromApi();
-      }
+      context.read<AppState>().refreshFriendsFromApi();
     });
   }
 
@@ -49,20 +46,6 @@ class _FriendsScreenState extends State<FriendsScreen> {
 
   List<SquadUser> _outgoing(AppState app) =>
       app.listUsersForIds(app.outgoingRequestIds);
-
-  List<SquadUser> _searchLocal(AppState app, String q) {
-    final me = app.currentUser?.id;
-    final lower = q.trim().toLowerCase();
-    if (lower.isEmpty) return [];
-    return app.visibleUsers().where((u) {
-      if (u.id == me) return false;
-      if (u.displayName.toLowerCase().contains(lower)) return true;
-      if ((u.profileLocation ?? u.city).toLowerCase().contains(lower)) {
-        return true;
-      }
-      return (u.interests ?? []).any((i) => i.toLowerCase().contains(lower));
-    }).toList();
-  }
 
   Future<void> _runRemoteSearch(AppState app, String q) async {
     final trimmed = q.trim();
@@ -98,8 +81,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
         final incoming = _incoming(app);
         final suggested = app.suggestedFriends(limit: 8);
         final q = _query.text;
-        final results =
-            AppConfig.useApi ? _remoteSearchResults : _searchLocal(app, q);
+        final results = _remoteSearchResults;
 
         return DecoratedBox(
           decoration: const BoxDecoration(gradient: SquadColors.backgroundGradient),
@@ -216,34 +198,20 @@ class _FriendsScreenState extends State<FriendsScreen> {
                               )
                             else
                               for (final u in incoming)
-                                _PersonRow(
+                                _IncomingRequestCard(
                                   user: u,
                                   onOpenProfile: () => _openProfile(context, u.id),
-                                  action: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      _SmallActionButton(
-                                        label: 'Accept',
-                                        icon: Icons.check_rounded,
-                                        primary: true,
-                                        onPressed: () {
-                                          app.acceptFriendRequest(u.id);
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            SnackBar(
-                                              content: Text(
-                                                'You and ${u.displayName} are now friends!',
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                      const SizedBox(width: 8),
-                                      _SmallActionButton(
-                                        label: 'Decline',
-                                        onPressed: () =>
-                                            app.declineFriendRequest(u.id),
-                                      ),
-                                    ],
+                                  onAccept: () => _respondToIncomingRequest(
+                                    context,
+                                    app,
+                                    u,
+                                    accept: true,
+                                  ),
+                                  onDecline: () => _respondToIncomingRequest(
+                                    context,
+                                    app,
+                                    u,
+                                    accept: false,
                                   ),
                                 ),
                             const SizedBox(height: 16),
@@ -290,9 +258,9 @@ class _FriendsScreenState extends State<FriendsScreen> {
                             if (suggested.isEmpty)
                               const _EmptyCard(
                                 icon: Icons.auto_awesome_outlined,
-                                title: 'No suggestions right now',
+                                title: 'No suggestions yet',
                                 hint:
-                                    'Add interests to your profile to get matches.',
+                                    'Use Find to search by username and send a friend request.',
                               )
                             else
                               for (final u in suggested)
@@ -314,9 +282,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
                               controller: _query,
                               onChanged: (value) {
                                 setState(() {});
-                                if (AppConfig.useApi) {
-                                  _runRemoteSearch(app, value);
-                                }
+                                _runRemoteSearch(app, value);
                               },
                               decoration: InputDecoration(
                                 hintText:
@@ -371,8 +337,48 @@ class _FriendsScreenState extends State<FriendsScreen> {
     );
   }
 
-  void _openProfile(BuildContext context, String userId) {
-    Navigator.of(context).push(
+  Future<void> _respondToIncomingRequest(
+    BuildContext context,
+    AppState app,
+    SquadUser user, {
+    required bool accept,
+  }) async {
+    try {
+      if (accept) {
+        await app.acceptFriendRequest(user.id);
+      } else {
+        await app.declineFriendRequest(user.id);
+      }
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            accept
+                ? 'You and ${user.displayName} are now friends!'
+                : 'Declined ${user.displayName}\'s request',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            accept
+                ? 'Could not accept request: $e'
+                : 'Could not decline request: $e',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _openProfile(BuildContext context, String userId) async {
+    final app = context.read<AppState>();
+    app.users.resetUnresolved([userId]);
+    await app.users.resolve(userId);
+    if (!context.mounted) return;
+    await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ProfileScreen(userId: userId),
       ),
@@ -514,6 +520,162 @@ class _EmptyCard extends StatelessWidget {
   }
 }
 
+class _IncomingRequestCard extends StatelessWidget {
+  const _IncomingRequestCard({
+    required this.user,
+    required this.onOpenProfile,
+    required this.onAccept,
+    required this.onDecline,
+  });
+
+  final SquadUser user;
+  final VoidCallback onOpenProfile;
+  final VoidCallback onAccept;
+  final VoidCallback onDecline;
+
+  bool get _loading => user.displayName == '…';
+
+  @override
+  Widget build(BuildContext context) {
+    final location = profileLocationLine(user);
+    final bio = user.bio?.trim();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: SquadColors.card,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: SquadColors.cardShadow,
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onOpenProfile,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SquadUserAvatar(user: user, size: 56),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            user.displayName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 16,
+                            ),
+                          ),
+                          if (user.username.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              '@${user.username}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: SquadColors.muted,
+                              ),
+                            ),
+                          ],
+                          if (location.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.place_outlined,
+                                  size: 14,
+                                  color: SquadColors.muted,
+                                ),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    location,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: SquadColors.muted,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                          const SizedBox(height: 8),
+                          if (_loading)
+                            Text(
+                              'Loading profile…',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: SquadColors.muted,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            )
+                          else if (bio != null && bio.isNotEmpty)
+                            Text(
+                              bio,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: SquadColors.muted,
+                                height: 1.35,
+                              ),
+                            )
+                          else
+                            Text(
+                              'No bio yet.',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: SquadColors.muted,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      color: SquadColors.muted,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Row(
+            children: [
+              Expanded(
+                child: _SmallActionButton(
+                  label: 'Accept',
+                  icon: Icons.check_rounded,
+                  primary: true,
+                  onPressed: _loading ? () {} : onAccept,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _SmallActionButton(
+                  label: 'Decline',
+                  onPressed: _loading ? () {} : onDecline,
+                ),
+              ),
+            ],
+          ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _PersonRow extends StatelessWidget {
   const _PersonRow({
     required this.user,
@@ -529,7 +691,10 @@ class _PersonRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final loc = user.profileLocation ?? user.city;
+    final loc = profileLocationLine(user);
+    final meta = user.age != null && loc.isNotEmpty
+        ? '${user.age} · $loc'
+        : (user.age != null ? '${user.age}' : loc);
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
@@ -542,10 +707,7 @@ class _PersonRow extends StatelessWidget {
         children: [
           GestureDetector(
             onTap: onOpenProfile,
-            child: SquadInitialsAvatar(
-              initials: displayInitials(user.displayName),
-              background: avatarColorForKey(user.id),
-            ),
+            child: SquadUserAvatar(user: user),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -564,13 +726,16 @@ class _PersonRow extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      if (user.age != null) ...[
+                      if (meta.isNotEmpty) ...[
                         const SizedBox(width: 6),
-                        Text(
-                          '${user.age} · $loc',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: SquadColors.muted,
+                        Flexible(
+                          child: Text(
+                            meta,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: SquadColors.muted,
+                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ],
@@ -685,13 +850,21 @@ class _AddFriendButton extends StatelessWidget {
           label: 'Accept',
           icon: Icons.check_rounded,
           primary: true,
-          onPressed: () {
-            app.acceptFriendRequest(user.id);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('You and ${user.displayName} are now friends!'),
-              ),
-            );
+          onPressed: () async {
+            try {
+              await app.acceptFriendRequest(user.id);
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('You and ${user.displayName} are now friends!'),
+                ),
+              );
+            } catch (e) {
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Could not accept request: $e')),
+              );
+            }
           },
         );
       case FriendStatus.none:

@@ -1,6 +1,6 @@
 import '../models/models.dart';
 
-/// Data access for plans — mock (in-memory) or HTTP API.
+/// Data access for plans via HTTP API.
 abstract class PlanRepository {
   Future<List<SquadPlan>> fetchFeed({String status = 'active'});
   Future<SquadPlan?> getPlan(String id);

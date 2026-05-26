@@ -4,6 +4,9 @@ enum PlanStatus { active, locked, completed }
 
 enum PlanSource { manual, voice, suggestion }
 
+/// Who can see a plan — `squadUp-layout` `Plan.visibility`.
+enum PlanVisibility { public, private }
+
 /// One line item inside a plan (a hangout can bundle several stops).
 @immutable
 class PlanActivity {
@@ -49,6 +52,7 @@ class SquadUser {
     this.bio,
     this.interests,
     this.profileLocation,
+    this.avatarUrl,
   });
 
   final String id;
@@ -66,6 +70,9 @@ class SquadUser {
 
   /// Location line on profile; falls back to [city] when absent.
   final String? profileLocation;
+
+  /// Remote avatar image URL from the API; falls back to initials.
+  final String? avatarUrl;
 }
 
 @immutable
@@ -80,6 +87,7 @@ class PlanDraft {
     this.gameName,
     this.threshold = 2,
     this.transcript,
+    this.visibility = PlanVisibility.public,
   });
 
   final String vibeEmoji;
@@ -95,6 +103,7 @@ class PlanDraft {
   final String? gameName;
   final int threshold;
   final String? transcript;
+  final PlanVisibility visibility;
 
   PlanDraft copyWith({
     String? vibeEmoji,
@@ -106,6 +115,7 @@ class PlanDraft {
     String? gameName,
     int? threshold,
     String? transcript,
+    PlanVisibility? visibility,
   }) {
     return PlanDraft(
       vibeEmoji: vibeEmoji ?? this.vibeEmoji,
@@ -117,6 +127,7 @@ class PlanDraft {
       gameName: gameName ?? this.gameName,
       threshold: threshold ?? this.threshold,
       transcript: transcript ?? this.transcript,
+      visibility: visibility ?? this.visibility,
     );
   }
 }
@@ -138,6 +149,7 @@ class SquadPlan {
     this.transcript,
     List<String>? tapInUserIds,
     DateTime? createdAt,
+    this.visibility = PlanVisibility.public,
   })  : activities = activities ?? const [],
         tapInUserIds = tapInUserIds ?? [],
         createdAt = createdAt ?? DateTime.now();
@@ -159,8 +171,11 @@ class SquadPlan {
   final String? transcript;
   final List<String> tapInUserIds;
   final DateTime createdAt;
+  final PlanVisibility visibility;
 
   int get tapInCount => tapInUserIds.length;
+
+  bool get isPrivate => visibility == PlanVisibility.private;
 
   bool userHasTappedIn(String userId) => tapInUserIds.contains(userId);
 

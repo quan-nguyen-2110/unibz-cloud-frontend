@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/squad_theme.dart';
 import '../data/vibe_catalog.dart';
+import '../models/models.dart';
 
 class ScreenHeader extends StatelessWidget {
   const ScreenHeader({
@@ -140,6 +141,57 @@ class VibeChipRow extends StatelessWidget {
           );
         },
       ),
+    );
+  }
+}
+
+class SquadUserAvatar extends StatelessWidget {
+  const SquadUserAvatar({
+    super.key,
+    required this.user,
+    this.size = 44,
+  });
+
+  final SquadUser user;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final url = user.avatarUrl?.trim();
+    if (url != null && url.isNotEmpty) {
+      return Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: SquadColors.card, width: 2),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: ClipOval(
+          child: Image.network(
+            url,
+            fit: BoxFit.cover,
+            width: size,
+            height: size,
+            errorBuilder: (_, __, ___) => _initials(),
+          ),
+        ),
+      );
+    }
+    return _initials();
+  }
+
+  Widget _initials() {
+    return SquadInitialsAvatar(
+      initials: displayInitials(user.displayName),
+      background: avatarColorForKey(user.id),
+      size: size,
     );
   }
 }

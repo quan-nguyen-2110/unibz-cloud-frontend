@@ -1,3 +1,6 @@
+import 'package:flutter/foundation.dart';
+
+import '../config/app_config.dart';
 import 'api_client.dart';
 import 'auth_token_store.dart';
 
@@ -16,14 +19,16 @@ class AuthService {
   final ApiClient _client;
 
   Future<void> login({required String email, required String password}) async {
-    if (email.trim().isEmpty || password.isEmpty) {
+    final trimmedEmail = email.trim();
+    final trimmedPassword = password.trim();
+    if (trimmedEmail.isEmpty || trimmedPassword.isEmpty) {
       throw AuthException('Enter your email and password.');
     }
 
     try {
       final data = await _client.postJson(
         '/auth/login',
-        body: {'email': email.trim(), 'password': password},
+        body: {'email': trimmedEmail, 'password': trimmedPassword},
       );
       final token = data['accessToken'] as String?;
       if (token == null || token.isEmpty) {
@@ -31,13 +36,22 @@ class AuthService {
       }
       authTokenStore.setAccessToken(token);
     } on ApiException catch (e) {
+      debugPrint(
+        'AuthService.login ApiException: ${e.statusCode} ${e.message}',
+      );
       throw AuthException(e.message);
+    } catch (e) {
+      debugPrint('AuthService.login error: $e');
+      final hint = AppConfig.apiBaseUrl.contains('127.0.0.1') ||
+              AppConfig.apiBaseUrl.contains('10.0.2.2')
+          ? ' Is the API running? Try: squadUp-backend/scripts/run-local-aws.ps1 '
+            'and mobile scripts/run_local_aws.ps1 (uses adb reverse).'
+          : ' Use scripts/run_aws.ps1 for AWS, or check emulator internet.';
+      throw AuthException(
+        'Cannot reach the API at ${AppConfig.apiBaseUrl}.$hint'
+        '${kDebugMode ? ' ($e)' : ''}',
+      );
     }
-  }
-
-  /// Prototype path when API/Cognito is unavailable (matches layout TODO stub).
-  Future<void> loginDemo() async {
-    await Future<void>.delayed(const Duration(milliseconds: 600));
   }
 
   Future<void> signUp({
@@ -75,11 +89,6 @@ class AuthService {
     }
   }
 
-  /// Prototype path when API/Cognito is unavailable — `signup.tsx` stub.
-  Future<void> signUpDemo() async {
-    await Future<void>.delayed(const Duration(milliseconds: 600));
-  }
-
   Future<void> refreshToken(String refreshToken) async {
     try {
       final data = await _client.postJson(
@@ -104,6 +113,53 @@ class AuthService {
       );
     } on ApiException catch (e) {
       throw AuthException(e.message);
+    }
+  }
+
+  /// Sends a password-reset code to [email] (Cognito `ForgotPassword`).
+  Future<String> forgotPassword(String email) async {
+    if (email.trim().isEmpty) {
+      throw AuthException('Enter a valid email address.');
+    }
+    try {
+      final data = await _client.postJson(
+        '/auth/forgot-password',
+        body: {'email': email.trim()},
+      );
+      return data['message'] as String? ??
+          'If an account exists for this email, a reset code has been sent';
+    } on ApiException catch (e) {
+      throw AuthException(e.message);
+    } catch (_) {
+      throw AuthException(
+        'Cannot reach the API at ${AppConfig.apiBaseUrl}. '
+        'Use scripts/run_aws.ps1 for AWS, or check emulator internet.',
+      );
+    }
+  }
+
+  /// Confirms reset code and sets a new password (Cognito `ConfirmForgotPassword`).
+  Future<void> resetPassword({
+    required String email,
+    required String code,
+    required String password,
+  }) async {
+    try {
+      await _client.postJson(
+        '/auth/reset-password',
+        body: {
+          'email': email.trim(),
+          'code': code.trim(),
+          'password': password,
+        },
+      );
+    } on ApiException catch (e) {
+      throw AuthException(e.message);
+    } catch (_) {
+      throw AuthException(
+        'Cannot reach the API at ${AppConfig.apiBaseUrl}. '
+        'Use scripts/run_aws.ps1 for AWS, or check emulator internet.',
+      );
     }
   }
 

@@ -22,6 +22,14 @@ PlanSource _sourceFromJson(String? raw) {
   }
 }
 
+PlanVisibility _visibilityFromJson(String? raw) {
+  if (raw == 'private') return PlanVisibility.private;
+  return PlanVisibility.public;
+}
+
+String _visibilityToJson(PlanVisibility v) =>
+    v == PlanVisibility.private ? 'private' : 'public';
+
 String _sourceToJson(PlanSource source) {
   switch (source) {
     case PlanSource.voice:
@@ -74,6 +82,7 @@ SquadPlan squadPlanFromJson(Map<String, dynamic> json) {
     createdAt: json['createdAt'] != null
         ? DateTime.parse(json['createdAt'] as String)
         : DateTime.now(),
+    visibility: _visibilityFromJson(json['visibility'] as String?),
   );
 }
 
@@ -88,6 +97,7 @@ Map<String, dynamic> planDraftToJson(PlanDraft draft, PlanSource source) => {
       if (draft.gameName != null) 'gameName': draft.gameName,
       if (draft.transcript != null) 'transcript': draft.transcript,
       'source': _sourceToJson(source),
+      'visibility': _visibilityToJson(draft.visibility),
     };
 
 TapInOutcome tapInOutcomeFromJson(Map<String, dynamic> json) {
@@ -96,13 +106,19 @@ TapInOutcome tapInOutcomeFromJson(Map<String, dynamic> json) {
 
 SquadUser squadUserFromJson(Map<String, dynamic> json) {
   final bio = json['bio'] as String?;
+  final avatarUrl = json['avatarUrl'] as String?;
+  final id = json['userId'] as String? ?? json['id'] as String?;
+  if (id == null || id.isEmpty) {
+    throw FormatException('User JSON missing userId: $json');
+  }
   return SquadUser(
-    id: json['userId'] as String? ?? json['id'] as String,
+    id: id,
     username: json['username'] as String? ?? '',
     displayName: json['displayName'] as String? ?? 'User',
     phone: json['phone'] as String? ?? '',
     city: json['city'] as String? ?? '',
     avatarEmoji: '\u{1F9D1}',
     bio: bio != null && bio.trim().isNotEmpty ? bio.trim() : null,
+    avatarUrl: avatarUrl != null && avatarUrl.trim().isNotEmpty ? avatarUrl.trim() : null,
   );
 }

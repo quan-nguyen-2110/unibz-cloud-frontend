@@ -9,10 +9,11 @@ import 'package:provider/provider.dart';
 
 import '../data/vibe_catalog.dart';
 import '../models/models.dart';
-import '../services/profile_user_resolver.dart';
+import '../services/profile_user_resolver.dart' show mergeProfileWithCurrentUser, profileLocationLine, resolveProfileUser;
 import '../state/app_state.dart';
 import '../theme/squad_theme.dart';
 import '../widgets/cancel_plan_confirm_dialog.dart';
+import '../widgets/edit_profile_dialog.dart';
 import '../widgets/leave_plan_confirm_dialog.dart';
 import '../widgets/squad_layout_widgets.dart';
 
@@ -799,12 +800,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
     });
     final app = context.read<AppState>();
     try {
-      final user = await resolveProfileUser(
+      final resolved = await resolveProfileUser(
         widget.userId,
         currentUser: app.currentUser,
         lookup: app.users,
       );
       if (!mounted) return;
+      final user = resolved == null
+          ? null
+          : mergeProfileWithCurrentUser(resolved, app.currentUser);
       setState(() {
         _user = user;
         _loading = false;
@@ -890,8 +894,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     return Consumer<AppState>(
       builder: (context, app, _) {
-        final locationLine = user.profileLocation ?? user.city;
+        final isMe = app.currentUser?.id == widget.userId;
+        final displayUser =
+            mergeProfileWithCurrentUser(user, app.currentUser);
+        final locationLine = profileLocationLine(displayUser);
         final userPlans = app.plansInvolvingUser(widget.userId);
+        final interests = displayUser.interests ?? const <String>[];
+        final bioText = displayUser.bio?.trim() ?? '';
 
         return DecoratedBox(
           decoration: const BoxDecoration(gradient: SquadColors.backgroundGradient),
@@ -914,8 +923,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                _RoundBackButton(
-                                  onTap: () => Navigator.pop(context),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    _RoundBackButton(
+                                      onTap: () => Navigator.pop(context),
+                                    ),
+                                    if (isMe)
+                                      _ProfileEditButton(
+                                        onTap: () async {
+                                          final updated =
+                                              await showEditProfileDialog(
+                                            context,
+                                            user: displayUser,
+                                          );
+                                          if (!context.mounted) return;
+                                          if (updated != null) {
+                                            setState(() => _user = updated);
+                                            ScaffoldMessenger.of(context)
+                                                .showSnackBar(
+                                              const SnackBar(
+                                                content: Text('Profile saved'),
+                                              ),
+                                            );
+                                          }
+                                        },
+                                      ),
+                                  ],
                                 ),
                                 const SizedBox(height: 20),
                                 Center(
@@ -923,28 +958,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     children: [
                                       SquadInitialsAvatar(
                                         initials: displayInitials(
-                                          user.displayName,
+                                          displayUser.displayName,
                                         ),
                                         background: avatarColorForKey(widget.userId),
                                         size: 80,
                                       ),
                                       const SizedBox(height: 12),
                                       Text(
-                                        user.displayName,
+                                        displayUser.displayName,
                                         style: squadDisplay(context, 24),
                                         textAlign: TextAlign.center,
                                       ),
-                                      if (user.age != null &&
-                                          user.genderLabel != null)
-                                        Text(
-                                          '${user.age} · ${user.genderLabel}',
-                                          style: TextStyle(
-                                            fontSize: 14,
-                                            color: SquadColors.muted,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      if (locationLine.isNotEmpty)
+                                      const SizedBox(height: 4),
+                                      _ProfileMetaLine(
+                                        user: displayUser,
+                                        isMe: isMe,
+                                      ),
+                                      if (locationLine.isNotEmpty || isMe)
                                         Padding(
                                           padding: const EdgeInsets.only(top: 6),
                                           child: Row(
@@ -960,11 +990,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                               const SizedBox(width: 4),
                                               Flexible(
                                                 child: Text(
-                                                  locationLine,
+                                                  locationLine.isNotEmpty
+                                                      ? locationLine
+                                                      : 'Add location',
                                                   style: TextStyle(
                                                     fontSize: 12,
                                                     color: SquadColors.muted,
                                                     fontWeight: FontWeight.w600,
+                                                    fontStyle: locationLine
+                                                            .isEmpty
+                                                        ? FontStyle.italic
+                                                        : FontStyle.normal,
                                                   ),
                                                   textAlign: TextAlign.center,
                                                 ),
@@ -989,47 +1025,70 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   _ProfileCard(
                                     title: 'ABOUT',
                                     child: Text(
-                                      user.bio ??
-                                          '${user.displayName} · SquadUp member',
+                                      bioText.isNotEmpty
+                                          ? bioText
+                                          : (isMe
+                                              ? 'No bio yet. Tap Edit to tell people about yourself.'
+                                              : 'No bio yet.'),
                                       style: TextStyle(
                                         fontSize: 15,
                                         height: 1.45,
-                                        color: SquadColors.text,
+                                        color: bioText.isNotEmpty
+                                            ? SquadColors.text
+                                            : SquadColors.muted,
                                         fontWeight: FontWeight.w500,
+                                        fontStyle: bioText.isEmpty
+                                            ? FontStyle.italic
+                                            : FontStyle.normal,
                                       ),
                                     ),
                                   ),
-                                  if (user.interests != null &&
-                                      user.interests!.isNotEmpty) ...[
+                                  if (interests.isNotEmpty || isMe) ...[
                                     const SizedBox(height: 16),
                                     _ProfileCard(
                                       title: 'INTERESTS',
-                                      child: Wrap(
-                                        spacing: 8,
-                                        runSpacing: 8,
-                                        children: [
-                                          for (final i in user.interests!)
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 12,
-                                                vertical: 6,
+                                      child: interests.isEmpty
+                                          ? Text(
+                                              'No interests yet. Tap Edit to add some.',
+                                              style: TextStyle(
+                                                fontSize: 15,
+                                                height: 1.45,
+                                                color: SquadColors.muted,
+                                                fontWeight: FontWeight.w500,
+                                                fontStyle: FontStyle.italic,
                                               ),
-                                              decoration: BoxDecoration(
-                                                color: SquadColors.mutedBg,
-                                                borderRadius:
-                                                    BorderRadius.circular(999),
-                                              ),
-                                              child: Text(
-                                                i,
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.w700,
-                                                  fontSize: 13,
-                                                ),
-                                              ),
+                                            )
+                                          : Wrap(
+                                              spacing: 8,
+                                              runSpacing: 8,
+                                              children: [
+                                                for (final i in interests)
+                                                  Container(
+                                                    padding:
+                                                        const EdgeInsets
+                                                            .symmetric(
+                                                      horizontal: 12,
+                                                      vertical: 6,
+                                                    ),
+                                                    decoration: BoxDecoration(
+                                                      color:
+                                                          SquadColors.mutedBg,
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                        999,
+                                                      ),
+                                                    ),
+                                                    child: Text(
+                                                      i,
+                                                      style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                        fontSize: 13,
+                                                      ),
+                                                    ),
+                                                  ),
+                                              ],
                                             ),
-                                        ],
-                                      ),
                                     ),
                                   ],
                                   if (userPlans.isNotEmpty) ...[
@@ -1101,39 +1160,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     ),
                                   ],
                                   const SizedBox(height: 16),
-                                  FilledButton.icon(
-                                    style: FilledButton.styleFrom(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 16,
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(16),
-                                      ),
-                                      backgroundColor: SquadColors.primary,
-                                      foregroundColor: Colors.white,
-                                      shadowColor:
-                                          SquadColors.primary.withValues(
-                                        alpha: 0.35,
-                                      ),
-                                      elevation: 6,
+                                  if (isMe)
+                                    _ProfileLogoutButton(
+                                      onPressed: () {
+                                        app.logout();
+                                        Navigator.of(context)
+                                            .popUntil((route) => route.isFirst);
+                                      },
+                                    )
+                                  else
+                                    _ProfileFriendActions(
+                                      userId: widget.userId,
+                                      displayName: displayUser.displayName,
                                     ),
-                                    onPressed: () {
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
-                                        const SnackBar(
-                                          content: Text('Messages (prototype)'),
-                                        ),
-                                      );
-                                    },
-                                    icon: const Icon(Icons.chat_bubble_outline),
-                                    label: const Text(
-                                      'Message',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 16,
-                                      ),
-                                    ),
-                                  ),
                                 ],
                               ),
                             ),
@@ -1148,6 +1187,267 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+/// Friend / request actions at the bottom of another user's profile.
+class _ProfileFriendActions extends StatelessWidget {
+  const _ProfileFriendActions({
+    required this.userId,
+    required this.displayName,
+  });
+
+  final String userId;
+  final String displayName;
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<AppState>(
+      builder: (context, app, _) {
+        switch (app.getFriendStatus(userId)) {
+          case FriendStatus.incoming:
+            return Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      side: BorderSide(color: SquadColors.muted.withValues(alpha: 0.4)),
+                    ),
+                    onPressed: () async {
+                      try {
+                        await app.declineFriendRequest(userId);
+                        if (!context.mounted) return;
+                        Navigator.pop(context);
+                      } catch (e) {
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Could not decline: $e')),
+                        );
+                      }
+                    },
+                    child: const Text(
+                      'Decline',
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      backgroundColor: SquadColors.primary,
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: () async {
+                      try {
+                        await app.acceptFriendRequest(userId);
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('You and $displayName are now friends!'),
+                          ),
+                        );
+                        Navigator.pop(context);
+                      } catch (e) {
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Could not accept: $e')),
+                        );
+                      }
+                    },
+                    child: const Text(
+                      'Accept',
+                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          case FriendStatus.outgoing:
+            return OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                minimumSize: const Size(double.infinity, 0),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              onPressed: () => app.cancelFriendRequest(userId),
+              child: const Text(
+                'Cancel request',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+              ),
+            );
+          case FriendStatus.friend:
+          case FriendStatus.none:
+            return FilledButton.icon(
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                minimumSize: const Size(double.infinity, 0),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                backgroundColor: SquadColors.primary,
+                foregroundColor: Colors.white,
+                shadowColor: SquadColors.primary.withValues(alpha: 0.35),
+                elevation: 6,
+              ),
+              onPressed: () {
+                if (app.getFriendStatus(userId) == FriendStatus.none) {
+                  app.sendFriendRequest(userId);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Friend request sent')),
+                  );
+                  return;
+                }
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Messages (prototype)')),
+                );
+              },
+              icon: Icon(
+                app.getFriendStatus(userId) == FriendStatus.none
+                    ? Icons.person_add_rounded
+                    : Icons.chat_bubble_outline,
+              ),
+              label: Text(
+                app.getFriendStatus(userId) == FriendStatus.none
+                    ? 'Add friend'
+                    : 'Message',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                ),
+              ),
+            );
+        }
+      },
+    );
+  }
+}
+
+/// Age line under display name (layout: `age · gender`).
+class _ProfileMetaLine extends StatelessWidget {
+  const _ProfileMetaLine({required this.user, required this.isMe});
+
+  final SquadUser user;
+  final bool isMe;
+
+  @override
+  Widget build(BuildContext context) {
+    final age = user.age;
+    final gender = user.genderLabel?.trim();
+
+    if (age != null) {
+      final line = gender != null && gender.isNotEmpty
+          ? '$age · $gender'
+          : '$age';
+      return Text(
+        line,
+        style: TextStyle(
+          fontSize: 14,
+          color: SquadColors.muted,
+          fontWeight: FontWeight.w600,
+        ),
+      );
+    }
+
+    if (isMe) {
+      return Text(
+        'Add age',
+        style: TextStyle(
+          fontSize: 14,
+          color: SquadColors.muted,
+          fontWeight: FontWeight.w600,
+          fontStyle: FontStyle.italic,
+        ),
+      );
+    }
+
+    return const SizedBox.shrink();
+  }
+}
+
+/// Layout: `profile.$userId.tsx` header Edit pill when viewing own profile.
+class _ProfileEditButton extends StatelessWidget {
+  const _ProfileEditButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: SquadColors.card,
+      borderRadius: BorderRadius.circular(999),
+      elevation: 2,
+      shadowColor: SquadColors.primary.withValues(alpha: 0.08),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.edit_outlined, size: 16, color: SquadColors.text),
+              const SizedBox(width: 6),
+              Text(
+                'Edit',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: SquadColors.text,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Layout: `profile.$userId.tsx` — muted card, destructive "Log out" CTA.
+class _ProfileLogoutButton extends StatelessWidget {
+  const _ProfileLogoutButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: SquadColors.mutedBg,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onPressed,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.logout_rounded, size: 22, color: SquadColors.danger),
+              const SizedBox(width: 8),
+              Text(
+                'Log out',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: SquadColors.danger,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

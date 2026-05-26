@@ -14,7 +14,7 @@ class ApiUserRepository {
       if (raw is! Map<String, dynamic>) return null;
       return squadUserFromJson(raw);
     } on ApiException catch (e) {
-      if (e.statusCode == 404) return null;
+      if (e.statusCode == 404 || e.statusCode == 400) return null;
       rethrow;
     }
   }
@@ -39,10 +39,11 @@ class ApiUserRepository {
         .toList();
   }
 
-  Future<void> updateMe({String? displayName, String? bio}) async {
+  Future<void> updateMe({String? displayName, String? bio, String? city}) async {
     final body = <String, dynamic>{};
     if (displayName != null) body['displayName'] = displayName;
     if (bio != null) body['bio'] = bio;
+    if (city != null) body['city'] = city;
     if (body.isEmpty) return;
     await _client.putJson('/users/me', body: body);
   }

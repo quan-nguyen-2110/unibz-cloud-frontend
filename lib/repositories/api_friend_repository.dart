@@ -20,33 +20,66 @@ class FriendEdge {
   }
 }
 
+class FriendListPayload {
+  const FriendListPayload({required this.ids, required this.profiles});
+
+  final List<String> ids;
+  final List<Map<String, dynamic>> profiles;
+}
+
 class ApiFriendRepository {
   ApiFriendRepository({ApiClient? client}) : _client = client ?? ApiClient();
 
   final ApiClient _client;
 
-  Future<List<String>> fetchFriendIds() async {
+  List<Map<String, dynamic>> _parseProfiles(Map<String, dynamic> data) {
+    final raw = data['profiles'];
+    if (raw is Map) {
+      return raw.values
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    }
+    if (raw is List) {
+      return raw
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    }
+    return [];
+  }
+
+  Future<FriendListPayload> fetchFriends() async {
     final data = await _client.getJson('/friends');
     final list = data['friends'] as List<dynamic>? ?? [];
-    return list
-        .map((e) => FriendEdge.fromJson(e as Map<String, dynamic>).friendId)
-        .toList();
+    return FriendListPayload(
+      ids: list
+          .map((e) => FriendEdge.fromJson(e as Map<String, dynamic>).friendId)
+          .toList(),
+      profiles: _parseProfiles(data),
+    );
   }
 
-  Future<List<String>> fetchIncomingRequesterIds() async {
+  Future<FriendListPayload> fetchIncomingRequests() async {
     final data = await _client.getJson('/friends/requests');
     final list = data['requests'] as List<dynamic>? ?? [];
-    return list
-        .map((e) => FriendEdge.fromJson(e as Map<String, dynamic>).userId)
-        .toList();
+    return FriendListPayload(
+      ids: list
+          .map((e) => FriendEdge.fromJson(e as Map<String, dynamic>).userId)
+          .toList(),
+      profiles: _parseProfiles(data),
+    );
   }
 
-  Future<List<String>> fetchOutgoingFriendIds() async {
+  Future<FriendListPayload> fetchOutgoingRequests() async {
     final data = await _client.getJson('/friends/outgoing');
     final list = data['requests'] as List<dynamic>? ?? [];
-    return list
-        .map((e) => FriendEdge.fromJson(e as Map<String, dynamic>).friendId)
-        .toList();
+    return FriendListPayload(
+      ids: list
+          .map((e) => FriendEdge.fromJson(e as Map<String, dynamic>).friendId)
+          .toList(),
+      profiles: _parseProfiles(data),
+    );
   }
 
   Future<void> sendRequest(String friendId) async {

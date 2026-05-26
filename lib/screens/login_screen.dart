@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
-import '../config/app_config.dart';
 import '../services/auth_service.dart';
 import '../state/app_state.dart';
 import '../theme/squad_theme.dart';
 import '../widgets/auth_flow_widgets.dart';
+import 'forgot_password_screen.dart';
 import 'signup_screen.dart';
 import 'verify_email_screen.dart';
 
@@ -66,25 +66,10 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      if (AppConfig.useApi && !AppConfig.useDevAuth) {
-        await _auth.login(
-          email: _email.text,
-          password: _password.text,
-        );
-      } else {
-        try {
-          await _auth.login(
-            email: _email.text,
-            password: _password.text,
-          );
-        } on AuthException catch (e) {
-          if (e.message == 'Enter your email and password.') {
-            setState(() => _error = e.message);
-            return;
-          }
-          await _auth.loginDemo();
-        }
-      }
+      await _auth.login(
+        email: _email.text,
+        password: _password.text,
+      );
       if (!mounted) return;
       await context.read<AppState>().completeLogin(email: _email.text.trim());
     } on AuthException catch (e) {
@@ -93,6 +78,8 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
       setState(() => _error = e.message);
+    } catch (e) {
+      setState(() => _error = 'Login failed: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -101,6 +88,17 @@ class _LoginScreenState extends State<LoginScreen> {
   void _openSignup() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => const SignupScreen()),
+    );
+  }
+
+  void _openForgotPassword() {
+    final trimmed = _email.text.trim();
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ForgotPasswordScreen(
+          initialEmail: trimmed.isEmpty ? null : trimmed,
+        ),
+      ),
     );
   }
 
@@ -136,6 +134,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             setState(() => _showPassword = !_showPassword),
                         onSubmit: _submit,
                         onOpenSignup: _openSignup,
+                        onOpenForgotPassword: _openForgotPassword,
                       ),
                     ),
                   ),
@@ -160,6 +159,7 @@ class _LoginFormCard extends StatelessWidget {
     required this.onTogglePassword,
     required this.onSubmit,
     required this.onOpenSignup,
+    required this.onOpenForgotPassword,
   });
 
   final TextEditingController email;
@@ -171,6 +171,7 @@ class _LoginFormCard extends StatelessWidget {
   final VoidCallback onTogglePassword;
   final VoidCallback onSubmit;
   final VoidCallback onOpenSignup;
+  final VoidCallback onOpenForgotPassword;
 
   @override
   Widget build(BuildContext context) {
@@ -232,7 +233,7 @@ class _LoginFormCard extends StatelessWidget {
               children: [
                 const Expanded(child: AuthFieldLabel('Password')),
                 TextButton(
-                  onPressed: () {},
+                  onPressed: onOpenForgotPassword,
                   style: TextButton.styleFrom(
                     padding: EdgeInsets.zero,
                     minimumSize: Size.zero,

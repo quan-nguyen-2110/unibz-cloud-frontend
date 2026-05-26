@@ -1,5 +1,8 @@
+// Migrated from squadUp-layout/src/routes/create.tsx (ec99d70)
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../data/vibe_catalog.dart';
@@ -20,17 +23,71 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
   SquadVibe _vibe = SquadVibe.gaming;
   final _desc = TextEditingController();
   final _location = TextEditingController();
-  String _when = 'Now';
+  bool _whenNow = true;
+  DateTime? _whenDate;
+  TimeOfDay _whenTime = const TimeOfDay(hour: 19, minute: 0);
   int _maxPeople = 2;
+  PlanVisibility _visibility = PlanVisibility.public;
 
-  static const _whens = [
-    'Now',
-    'In 1 hour',
-    'Today, 2:00 PM',
-    'Tonight',
-    'Tomorrow',
-  ];
   static const _counts = [2, 4, 6, 8, 10];
+
+  bool get _whenValid => _whenNow || _whenDate != null;
+
+  String get _whenLabel {
+    if (_whenNow) return 'Now';
+    if (_whenDate == null) return 'Pick date & time';
+    final d = DateTime(
+      _whenDate!.year,
+      _whenDate!.month,
+      _whenDate!.day,
+      _whenTime.hour,
+      _whenTime.minute,
+    );
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final planDay = DateTime(d.year, d.month, d.day);
+    final dayPart = planDay == today
+        ? 'Today'
+        : planDay == today.add(const Duration(days: 1))
+            ? 'Tomorrow'
+            : DateFormat('EEE, MMM d').format(d);
+    return '$dayPart · ${DateFormat('h:mm a').format(d)}';
+  }
+
+  Future<void> _openVoice(BuildContext context) async {
+    final sample = await showVoiceDictateDialog(context);
+    if (sample == null || !mounted) return;
+    _applyVoice(sample);
+  }
+
+  void _applyVoice(VoiceDictateSample s) {
+    setState(() {
+      _desc.text = s.text.length > 200 ? s.text.substring(0, 200) : s.text;
+      _vibe = s.vibe;
+      if (s.when == 'Now' || s.when == 'In 1 hour') {
+        _whenNow = true;
+      } else {
+        final d = DateTime.now();
+        _whenDate = s.when == 'Tomorrow'
+            ? d.add(const Duration(days: 1))
+            : DateTime(d.year, d.month, d.day);
+        _whenNow = false;
+        _whenTime = s.when == 'Today, 2:00 PM'
+            ? const TimeOfDay(hour: 14, minute: 0)
+            : const TimeOfDay(hour: 19, minute: 0);
+      }
+      _location.text = s.location;
+      _maxPeople = _nearestCount(s.people);
+    });
+    final meta = kVibeMeta[s.vibe]!;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Got it! · ${meta.label} · ${s.when} · @ ${s.location}',
+        ),
+      ),
+    );
+  }
 
   int _nearestCount(int people) {
     var best = _counts.first;
@@ -38,29 +95,6 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
       if ((c - people).abs() < (best - people).abs()) best = c;
     }
     return best;
-  }
-
-  Future<void> _openVoice(BuildContext context) async {
-    final result = await showVoiceDictateDialog(context);
-    if (result == null || !mounted) return;
-    setState(() {
-      _desc.text = result.text.length > 200
-          ? result.text.substring(0, 200)
-          : result.text;
-      _vibe = result.vibe;
-      _when = result.when;
-      _location.text = result.location;
-      _maxPeople = _nearestCount(result.people);
-    });
-    if (!context.mounted) return;
-    final meta = kVibeMeta[result.vibe]!;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Got it! ${meta.label} · ${result.when} · @ ${result.location}',
-        ),
-      ),
-    );
   }
 
   @override
@@ -71,67 +105,83 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
   }
 
   DateTime _resolveWhen() {
+    if (_whenNow) return DateTime.now();
+    final d = _whenDate ?? DateTime.now();
+    return DateTime(d.year, d.month, d.day, _whenTime.hour, _whenTime.minute);
+  }
+
+  Future<void> _pickDate() async {
     final now = DateTime.now();
-    switch (_when) {
-      case 'Now':
-        return now;
-      case 'In 1 hour':
-        return now.add(const Duration(hours: 1));
-      case 'Today, 2:00 PM':
-        return DateTime(now.year, now.month, now.day, 14, 0);
-      case 'Tonight':
-        return DateTime(now.year, now.month, now.day, 20, 0);
-      case 'Tomorrow':
-        final t = now.add(const Duration(days: 1));
-        return DateTime(t.year, t.month, t.day, 18, 0);
-      default:
-        return now;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _whenDate ?? now,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: now.add(const Duration(days: 365)),
+    );
+    if (picked != null && mounted) {
+      setState(() => _whenDate = picked);
+    }
+  }
+
+  Future<void> _pickTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _whenTime,
+    );
+    if (picked != null && mounted) {
+      setState(() => _whenTime = picked);
     }
   }
 
   Future<void> _post(BuildContext context) async {
-    final desc = _desc.text.trim();
-    if (desc.isEmpty) {
+    if (!_whenValid) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Describe the plan')),
-      );
-      return;
-    }
-    final loc = _location.text.trim();
-    if (loc.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Add a location')),
+        const SnackBar(content: Text('Pick a date and time for your plan.')),
       );
       return;
     }
 
+    final desc = _desc.text.trim();
+    final loc = _location.text.trim();
     final meta = kVibeMeta[_vibe]!;
-    final title = desc.length > 42 ? '${desc.substring(0, 42)}…' : desc;
+    final title =
+        desc.isNotEmpty ? desc : '${meta.label} hangout';
+
     final draft = PlanDraft(
       vibeEmoji: meta.emoji,
       title: title,
       startAt: _resolveWhen(),
-      description: desc,
+      description: desc.isNotEmpty ? desc : title,
       activities: [
         PlanActivity(
           emoji: meta.emoji,
           title: title,
-          location: loc,
+          location: loc.isNotEmpty ? loc : 'TBD',
         ),
       ],
-      location: loc,
+      location: loc.isNotEmpty ? loc : 'TBD',
       threshold: _maxPeople,
+      visibility: _visibility,
     );
     await context.read<AppState>().addPlanFromDraft(draft, PlanSource.manual);
+    if (!mounted) return;
     HapticFeedback.mediumImpact();
+    final privacyText = _visibility == PlanVisibility.private
+        ? 'Only your friends will see it.'
+        : 'Your squad will see it now.';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Posted · ${meta.emoji} ${meta.label} · $_when'),
+        content: Text(
+          'Plan posted! $privacyText · ${meta.emoji} ${meta.label} · $_whenLabel',
+        ),
       ),
     );
     _desc.clear();
     _location.clear();
-    setState(() {});
+    setState(() {
+      _whenNow = true;
+      _whenDate = null;
+    });
   }
 
   @override
@@ -197,16 +247,47 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    TextField(
-                      controller: _desc,
-                      maxLines: 4,
-                      maxLength: 200,
-                      textCapitalization: TextCapitalization.sentences,
-                      decoration: const InputDecoration(
-                        hintText: 'Describe the vibe…',
-                        counterText: '',
-                      ),
-                      onChanged: (_) => setState(() {}),
+                    Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        TextField(
+                          controller: _desc,
+                          maxLines: 4,
+                          maxLength: 200,
+                          textCapitalization: TextCapitalization.sentences,
+                          decoration: const InputDecoration(
+                            hintText:
+                                'Describe the vibe… or tap the mic to speak it',
+                            counterText: '',
+                            contentPadding: EdgeInsets.fromLTRB(12, 12, 48, 12),
+                          ),
+                          onChanged: (_) => setState(() {}),
+                        ),
+                        Positioned(
+                          top: 8,
+                          right: 8,
+                          child: Material(
+                            color: SquadColors.secondary,
+                            borderRadius: BorderRadius.circular(12),
+                            elevation: 2,
+                            shadowColor:
+                                SquadColors.primary.withValues(alpha: 0.1),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: () => _openVoice(context),
+                              child: const SizedBox(
+                                width: 36,
+                                height: 36,
+                                child: Icon(
+                                  Icons.mic_rounded,
+                                  size: 18,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                     Align(
                       alignment: Alignment.centerRight,
@@ -239,31 +320,69 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
               const SizedBox(height: 12),
               _SectionCard(
                 title: 'When',
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      for (final w in _whens) ...[
-                        Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: ChoiceChip(
-                            label: Text(w),
-                            selected: _when == w,
-                            onSelected: (_) => setState(() => _when = w),
-                            selectedColor: SquadColors.secondary,
-                            labelStyle: TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 13,
-                              color:
-                                  _when == w ? Colors.white : SquadColors.text,
-                            ),
-                            backgroundColor: SquadColors.inputFill,
-                            side: BorderSide.none,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _WhenModeChip(
+                            label: 'Now',
+                            icon: Icons.bolt_rounded,
+                            selected: _whenNow,
+                            onTap: () => setState(() => _whenNow = true),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _WhenModeChip(
+                            label: 'Schedule',
+                            icon: Icons.calendar_today_rounded,
+                            selected: !_whenNow,
+                            onTap: () => setState(() {
+                              _whenNow = false;
+                              _whenDate ??= DateTime.now();
+                            }),
                           ),
                         ),
                       ],
+                    ),
+                    if (!_whenNow) ...[
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _ScheduleField(
+                              icon: Icons.calendar_today_rounded,
+                              label: _whenDate == null
+                                  ? 'Pick date'
+                                  : _formatDateLabel(_whenDate!),
+                              onTap: _pickDate,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _ScheduleField(
+                              icon: Icons.schedule_rounded,
+                              label: _whenTime.format(context),
+                              onTap: _pickTime,
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
-                  ),
+                    const SizedBox(height: 12),
+                    Text(
+                      _whenNow
+                          ? 'Plan starts right now.'
+                          : 'Starts $_whenLabel.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: SquadColors.muted,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 12),
@@ -295,6 +414,51 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
                         backgroundColor: SquadColors.inputFill,
                         side: BorderSide.none,
                       ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              _SectionCard(
+                title: 'Privacy',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _WhenModeChip(
+                            label: 'Public',
+                            icon: Icons.public_rounded,
+                            selected: _visibility == PlanVisibility.public,
+                            onTap: () => setState(
+                              () => _visibility = PlanVisibility.public,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _WhenModeChip(
+                            label: 'Friends only',
+                            icon: Icons.lock_rounded,
+                            selected: _visibility == PlanVisibility.private,
+                            onTap: () => setState(
+                              () => _visibility = PlanVisibility.private,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _visibility == PlanVisibility.public
+                          ? 'Anyone on SquadUp can see and join this plan.'
+                          : 'Only your friends can see this plan.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: SquadColors.muted,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -335,6 +499,107 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  String _formatDateLabel(DateTime d) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final planDay = DateTime(d.year, d.month, d.day);
+    if (planDay == today) return 'Today';
+    if (planDay == today.add(const Duration(days: 1))) return 'Tomorrow';
+    return DateFormat('EEE, MMM d').format(d);
+  }
+}
+
+class _WhenModeChip extends StatelessWidget {
+  const _WhenModeChip({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? SquadColors.secondary : SquadColors.inputFill,
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 18,
+                color: selected ? Colors.white : SquadColors.text,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: selected ? Colors.white : SquadColors.text,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ScheduleField extends StatelessWidget {
+  const _ScheduleField({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: SquadColors.inputFill,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          child: Row(
+            children: [
+              Icon(icon, size: 18, color: SquadColors.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

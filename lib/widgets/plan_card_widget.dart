@@ -140,26 +140,36 @@ class PlanCardWidget extends StatelessWidget {
                                         ],
                                       ),
                                     ),
-                                    if (vibeMeta != null)
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 12,
-                                          vertical: 6,
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        _PlanVisibilityBadge(
+                                          isPrivate: plan.isPrivate,
                                         ),
-                                        decoration: BoxDecoration(
-                                          color: vibeMeta.softBg,
-                                          borderRadius:
-                                              BorderRadius.circular(999),
-                                        ),
-                                        child: Text(
-                                          '${vibeMeta.emoji} ${vibeMeta.label}',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w800,
-                                            color: vibeMeta.softFg,
+                                        if (vibeMeta != null) ...[
+                                          const SizedBox(width: 6),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 6,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: vibeMeta.softBg,
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
+                                            ),
+                                            child: Text(
+                                              '${vibeMeta.emoji} ${vibeMeta.label}',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w800,
+                                                color: vibeMeta.softFg,
+                                              ),
+                                            ),
                                           ),
-                                        ),
-                                      ),
+                                        ],
+                                      ],
+                                    ),
                                   ],
                                 ),
                               ],
@@ -272,6 +282,43 @@ class PlanCardWidget extends StatelessWidget {
             ),
           ),
         ),
+    );
+  }
+}
+
+/// Public / Friends badge — `squadUp-layout` `index.tsx` (ec99d70).
+class _PlanVisibilityBadge extends StatelessWidget {
+  const _PlanVisibilityBadge({required this.isPrivate});
+
+  final bool isPrivate;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: SquadColors.mutedBg,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isPrivate ? Icons.lock_rounded : Icons.public_rounded,
+            size: 12,
+            color: SquadColors.muted,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            isPrivate ? 'Friends' : 'Public',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              color: SquadColors.muted,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
