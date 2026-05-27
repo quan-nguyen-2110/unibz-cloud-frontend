@@ -27,6 +27,17 @@ PlanVisibility _visibilityFromJson(String? raw) {
   return PlanVisibility.public;
 }
 
+RecapRole? _recapRoleFromJson(String? raw) {
+  switch (raw) {
+    case 'hosted':
+      return RecapRole.hosted;
+    case 'attended':
+      return RecapRole.attended;
+    default:
+      return null;
+  }
+}
+
 String _visibilityToJson(PlanVisibility v) =>
     v == PlanVisibility.private ? 'private' : 'public';
 
@@ -98,6 +109,8 @@ SquadPlan squadPlanFromJson(Map<String, dynamic> json) {
         : DateTime.now(),
     visibility: _visibilityFromJson(json['visibility'] as String?),
     photos: photos,
+    sharedToProfile: json['sharedToProfile'] as bool? ?? false,
+    recapRole: _recapRoleFromJson(json['recapRole'] as String?),
   );
 }
 
@@ -140,7 +153,56 @@ SquadNotification squadNotificationFromJson(Map<String, dynamic> json) {
     hostId: meta?['hostId'] as String?,
     hostName: meta?['hostName'] as String?,
     planTitle: meta?['planTitle'] as String?,
+    requesterId: meta?['requesterId'] as String?,
+    requesterName: meta?['requesterName'] as String?,
   );
+}
+
+FeedPlanHubEvent? feedPlanHubEventFromJson(
+  String target,
+  Map<String, dynamic> json,
+) {
+  switch (target) {
+    case 'planCreated':
+      final raw = json['plan'];
+      if (raw is! Map) return null;
+      return FeedPlanHubEvent.created(
+        squadPlanFromJson(Map<String, dynamic>.from(raw)),
+      );
+    case 'planUpdated':
+      final raw = json['plan'];
+      if (raw is! Map) return null;
+      return FeedPlanHubEvent.updated(
+        squadPlanFromJson(Map<String, dynamic>.from(raw)),
+      );
+    case 'planTapIn':
+      final planId = json['planId'] as String?;
+      final userId = json['userId'] as String?;
+      if (planId == null || planId.isEmpty || userId == null || userId.isEmpty) {
+        return null;
+      }
+      return FeedPlanHubEvent.tapIn(
+        planId: planId,
+        userId: userId,
+        tapInCount: json['tapInCount'] as int?,
+      );
+    case 'planTapOut':
+      final planId = json['planId'] as String?;
+      final userId = json['userId'] as String?;
+      if (planId == null || planId.isEmpty || userId == null || userId.isEmpty) {
+        return null;
+      }
+      return FeedPlanHubEvent.tapOut(planId: planId, userId: userId);
+    case 'planLocked':
+      final planId = json['planId'] as String?;
+      if (planId == null || planId.isEmpty) return null;
+      return FeedPlanHubEvent.locked(
+        planId: planId,
+        tapInCount: json['tapInCount'] as int?,
+      );
+    default:
+      return null;
+  }
 }
 
 PlanCancelledHubEvent planCancelledHubEventFromJson(
@@ -186,6 +248,26 @@ InboxNotificationHubEvent inboxNotificationHubEventFromJson(
         planTitle: json['planTitle'] as String?,
         attendeeId: json['attendeeId'] as String?,
         attendeeName: json['attendeeName'] as String?,
+      );
+    case 'removed_from_plan':
+      return InboxNotificationHubEvent(
+        type: 'removed_from_plan',
+        title: 'Removed from plan',
+        body: message.isNotEmpty ? message : 'You were removed from a plan.',
+        notificationId: json['notificationId'] as String?,
+        planId: json['planId'] as String?,
+        planTitle: json['planTitle'] as String?,
+        hostId: json['hostId'] as String?,
+        hostName: json['hostName'] as String?,
+      );
+    case 'friend_request':
+      return InboxNotificationHubEvent(
+        type: 'friend_request',
+        title: 'New friend request',
+        body: message.isNotEmpty ? message : 'Someone wants to be friends.',
+        notificationId: json['notificationId'] as String?,
+        requesterId: json['requesterId'] as String?,
+        requesterName: json['requesterName'] as String?,
       );
     default:
       return InboxNotificationHubEvent(

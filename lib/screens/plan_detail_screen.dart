@@ -15,12 +15,12 @@ import '../theme/squad_theme.dart';
 import '../widgets/cancel_plan_confirm_dialog.dart';
 import '../widgets/edit_profile_dialog.dart';
 import '../widgets/leave_plan_confirm_dialog.dart';
+import '../widgets/remove_attendee_confirm_dialog.dart';
 import '../widgets/plan_photos_section.dart';
 import '../widgets/squad_layout_widgets.dart';
 import 'edit_plan_screen.dart';
-import 'recaps_screen.dart';
 
-/// Plan detail — migrated from `squadUp-layout` `plan.$planId.tsx`.
+/// Plan detail — migrated from `squadUp-layout` `plan.$planId.tsx` (0e57c36).
 class PlanDetailScreen extends StatefulWidget {
   const PlanDetailScreen({super.key, required this.planId});
 
@@ -381,22 +381,33 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
                                           ),
                                         ),
                                         const SizedBox(height: 12),
-                                        ...plan.tapInUserIds.map((id) {
-                                          final u = app.users.cached(id);
-                                          if (u == null) {
-                                            return const SizedBox.shrink();
-                                          }
-                                          return Padding(
-                                            padding:
-                                                const EdgeInsets.only(bottom: 8),
-                                            child: Material(
-                                              color: SquadColors.inputFill,
-                                              borderRadius:
-                                                  BorderRadius.circular(16),
-                                              child: InkWell(
-                                                borderRadius:
-                                                    BorderRadius.circular(16),
-                                                onTap: () {
+                                        ConstrainedBox(
+                                          constraints: const BoxConstraints(
+                                            maxHeight: 420,
+                                          ),
+                                          child: ListView.separated(
+                                            shrinkWrap: true,
+                                            padding: EdgeInsets.zero,
+                                            itemCount: plan.tapInUserIds.length,
+                                            separatorBuilder:
+                                                (context, index) =>
+                                                const SizedBox(height: 8),
+                                            itemBuilder: (context, index) {
+                                              final id =
+                                                  plan.tapInUserIds[index];
+                                              final u = app.users.cached(id);
+                                              if (u == null) {
+                                                return const SizedBox.shrink();
+                                              }
+                                              final canRemoveAttendee =
+                                                  userIsHost &&
+                                                      !cancelled &&
+                                                      id != plan.creatorId;
+                                              return _WhosInAttendeeRow(
+                                                user: u,
+                                                userId: id,
+                                                canRemove: canRemoveAttendee,
+                                                onOpenProfile: () {
                                                   Navigator.of(context).push(
                                                     MaterialPageRoute<void>(
                                                       builder: (_) =>
@@ -406,104 +417,51 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
                                                     ),
                                                   );
                                                 },
-                                                child: Padding(
-                                                  padding: const EdgeInsets.all(
-                                                    12,
-                                                  ),
-                                                  child: Row(
-                                                    children: [
-                                                      SquadInitialsAvatar(
-                                                        initials:
-                                                            displayInitials(
-                                                          u.displayName,
-                                                        ),
-                                                        background:
-                                                            avatarColorForKey(
+                                                onRemove: () {
+                                                  showRemoveAttendeeConfirmDialog(
+                                                    context: context,
+                                                    attendeeName:
+                                                        u.displayName,
+                                                    planTitle: plan.title,
+                                                    onConfirmRemove: () async {
+                                                      try {
+                                                        await app.removeAttendee(
+                                                          plan.id,
                                                           id,
-                                                        ),
-                                                        size: 44,
-                                                      ),
-                                                      const SizedBox(width: 12),
-                                                      Expanded(
-                                                        child: Column(
-                                                          crossAxisAlignment:
-                                                              CrossAxisAlignment
-                                                                  .start,
-                                                          children: [
-                                                            Row(
-                                                              children: [
-                                                                Flexible(
-                                                                  child: Text(
-                                                                    u.displayName,
-                                                                    overflow:
-                                                                        TextOverflow
-                                                                            .ellipsis,
-                                                                    style: const TextStyle(
-                                                                      fontWeight:
-                                                                          FontWeight
-                                                                              .w800,
-                                                                      fontSize:
-                                                                          15,
-                                                                    ),
-                                                                  ),
-                                                                ),
-                                                                if (u.age !=
-                                                                        null &&
-                                                                    u.genderLabel !=
-                                                                        null)
-                                                                  Padding(
-                                                                    padding: const EdgeInsets
-                                                                        .only(
-                                                                        left:
-                                                                            8),
-                                                                    child: Text(
-                                                                      '${u.age} · ${u.genderLabel}',
-                                                                      style:
-                                                                          TextStyle(
-                                                                        fontSize:
-                                                                            12,
-                                                                        color: SquadColors
-                                                                            .muted,
-                                                                        fontWeight:
-                                                                            FontWeight.w600,
-                                                                      ),
-                                                                    ),
-                                                                  ),
-                                                              ],
+                                                        );
+                                                        if (!context.mounted) {
+                                                          return;
+                                                        }
+                                                        ScaffoldMessenger.of(
+                                                          context,
+                                                        ).showSnackBar(
+                                                          SnackBar(
+                                                            content: Text(
+                                                              '${u.displayName} removed from the plan.',
                                                             ),
-                                                            if (u.bio != null &&
-                                                                u.bio!.trim()
-                                                                    .isNotEmpty)
-                                                              Padding(
-                                                                padding:
-                                                                    const EdgeInsets
-                                                                        .only(
-                                                                        top: 4),
-                                                                child: Text(
-                                                                  u.bio!.trim(),
-                                                                  maxLines: 2,
-                                                                  overflow:
-                                                                      TextOverflow
-                                                                          .ellipsis,
-                                                                  style:
-                                                                      TextStyle(
-                                                                    fontSize:
-                                                                        13,
-                                                                    color: SquadColors
-                                                                        .muted,
-                                                                  ),
-                                                                ),
-                                                              ),
-                                                          ],
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          );
-                                        }),
+                                                          ),
+                                                        );
+                                                      } catch (_) {
+                                                        if (!context.mounted) {
+                                                          return;
+                                                        }
+                                                        ScaffoldMessenger.of(
+                                                          context,
+                                                        ).showSnackBar(
+                                                          const SnackBar(
+                                                            content: Text(
+                                                              'Could not remove attendee. Try again.',
+                                                            ),
+                                                          ),
+                                                        );
+                                                      }
+                                                    },
+                                                  );
+                                                },
+                                              );
+                                            },
+                                          ),
+                                        ),
                                       ],
                                     ),
                                   ),
@@ -623,6 +581,125 @@ class _RoundIconButton extends StatelessWidget {
           padding: const EdgeInsets.all(10),
           child: Icon(icon, size: 22, color: SquadColors.text),
         ),
+      ),
+    );
+  }
+}
+
+/// Attendee row in WHO'S IN — layout `plan.$planId.tsx` (0e57c36).
+class _WhosInAttendeeRow extends StatelessWidget {
+  const _WhosInAttendeeRow({
+    required this.user,
+    required this.userId,
+    required this.canRemove,
+    required this.onOpenProfile,
+    required this.onRemove,
+  });
+
+  final SquadUser user;
+  final String userId;
+  final bool canRemove;
+  final VoidCallback onOpenProfile;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: SquadColors.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: SquadColors.border),
+        boxShadow: SquadColors.cardShadow,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: onOpenProfile,
+                child: Row(
+                  children: [
+                    SquadInitialsAvatar(
+                      initials: displayInitials(user.displayName),
+                      background: avatarColorForKey(userId),
+                      size: 44,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  user.displayName,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                              ),
+                              if (user.age != null && user.genderLabel != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 8),
+                                  child: Text(
+                                    '${user.age} · ${user.genderLabel}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: SquadColors.muted,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          if (user.bio != null && user.bio!.trim().isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(
+                                user.bio!.trim(),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: SquadColors.muted,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (canRemove) ...[
+            const SizedBox(width: 8),
+            Material(
+              color: SquadColors.danger.withValues(alpha: 0.1),
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: onRemove,
+                child: SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: Icon(
+                    Icons.person_remove_outlined,
+                    size: 18,
+                    color: SquadColors.danger,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -824,11 +901,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
   SquadUser? _user;
   bool _loading = true;
   String? _loadError;
+  List<SquadPlan> _sharedRecaps = [];
+  bool _recapsLoading = true;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadUser());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadUser();
+      _loadSharedRecaps();
+    });
+  }
+
+  Future<void> _loadSharedRecaps() async {
+    final app = context.read<AppState>();
+    setState(() => _recapsLoading = true);
+    try {
+      final list = await app.fetchProfileRecaps(widget.userId);
+      if (!mounted) return;
+      setState(() {
+        _sharedRecaps = list;
+        _recapsLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _recapsLoading = false);
+    }
   }
 
   Future<void> _loadUser() async {
@@ -858,6 +956,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _loading = false;
       });
     }
+  }
+
+  static String _formatPlanTime(DateTime t) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final planDay = DateTime(t.year, t.month, t.day);
+    final clock = DateFormat('h:mm a');
+    if (planDay == today) {
+      return 'Today, ${clock.format(t)}';
+    }
+    if (planDay == today.add(const Duration(days: 1))) {
+      return 'Tomorrow, ${clock.format(t)}';
+    }
+    return '${DateFormat.MMMd().format(t)}, ${clock.format(t)}';
   }
 
   Widget _profileShell({required Widget child}) {
@@ -1110,26 +1222,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     ),
                                   ],
                                   const SizedBox(height: 16),
-                                  if (isMe) ...[
-                                    _ProfileRecapsButton(
-                                      onPressed: () {
-                                        Navigator.of(context).push(
-                                          MaterialPageRoute<void>(
-                                            builder: (_) =>
-                                                const RecapsScreen(),
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                    const SizedBox(height: 12),
+                                  _ProfileSharedRecapsSection(
+                                    isMe: isMe,
+                                    loading: _recapsLoading,
+                                    plans: _sharedRecaps,
+                                    formatTime: _ProfileScreenState._formatPlanTime,
+                                    onManage: isMe
+                                        ? () {
+                                            Navigator.of(context).popUntil(
+                                              (route) => route.isFirst,
+                                            );
+                                            app.openShellTab(3);
+                                          }
+                                        : null,
+                                    onPlanTap: (planId) {
+                                      Navigator.of(context).push(
+                                        MaterialPageRoute<void>(
+                                          builder: (_) =>
+                                              PlanDetailScreen(planId: planId),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                  const SizedBox(height: 16),
+                                  if (isMe)
                                     _ProfileLogoutButton(
                                       onPressed: () {
                                         app.logout();
                                         Navigator.of(context)
                                             .popUntil((route) => route.isFirst);
                                       },
-                                    ),
-                                  ] else
+                                    )
+                                  else
                                     _ProfileFriendActions(
                                       userId: widget.userId,
                                       displayName: displayUser.displayName,
@@ -1376,40 +1500,275 @@ class _ProfileEditButton extends StatelessWidget {
   }
 }
 
-/// Layout: `profile.$userId.tsx` — secondary "Recaps" CTA (own profile).
-class _ProfileRecapsButton extends StatelessWidget {
-  const _ProfileRecapsButton({required this.onPressed});
+/// Layout: `profile.$userId.tsx` — shared recaps on profile (22a7a55).
+class _ProfileSharedRecapsSection extends StatelessWidget {
+  const _ProfileSharedRecapsSection({
+    required this.isMe,
+    required this.loading,
+    required this.plans,
+    required this.formatTime,
+    required this.onPlanTap,
+    this.onManage,
+  });
 
-  final VoidCallback onPressed;
+  final bool isMe;
+  final bool loading;
+  final List<SquadPlan> plans;
+  final String Function(DateTime) formatTime;
+  final ValueChanged<String> onPlanTap;
+  final VoidCallback? onManage;
 
   @override
   Widget build(BuildContext context) {
+    return _ProfileCard(
+      title: 'RECAPS',
+      titleIcon: Icons.auto_awesome_rounded,
+      trailing: isMe && onManage != null
+          ? TextButton(
+              onPressed: onManage,
+              child: const Text(
+                'Manage',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
+                  color: SquadColors.primary,
+                ),
+              ),
+            )
+          : null,
+      child: loading
+          ? const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Center(
+                child: SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            )
+          : plans.isEmpty
+              ? Text(
+                  isMe
+                      ? "Share a past plan from the Recaps tab and it'll show up here."
+                      : 'No shared recaps yet.',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: SquadColors.muted,
+                    height: 1.4,
+                  ),
+                )
+              : Column(
+                  children: [
+                    for (var i = 0; i < plans.length; i++) ...[
+                      if (i > 0) const SizedBox(height: 12),
+                      _ProfileSharedRecapItem(
+                        plan: plans[i],
+                        formatTime: formatTime,
+                        onTap: () => onPlanTap(plans[i].id),
+                      ),
+                    ],
+                  ],
+                ),
+    );
+  }
+}
+
+class _ProfileSharedRecapItem extends StatelessWidget {
+  const _ProfileSharedRecapItem({
+    required this.plan,
+    required this.formatTime,
+    required this.onTap,
+  });
+
+  final SquadPlan plan;
+  final String Function(DateTime) formatTime;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final vibe = squadVibeForPlan(plan);
+    final style = vibe != null ? kVibeMeta[vibe]! : kVibeMeta[SquadVibe.all]!;
+    final attendeeCount = {
+      plan.creatorId,
+      ...plan.tapInUserIds,
+    }.length;
+
     return Material(
-      color: SquadColors.secondary,
+      color: SquadColors.mutedBg.withValues(alpha: 0.6),
       borderRadius: BorderRadius.circular(16),
-      elevation: 2,
-      shadowColor: SquadColors.primary.withValues(alpha: 0.08),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: onPressed,
+        onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.image_outlined, size: 22, color: Colors.white),
-              const SizedBox(width: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: style.softBg,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '${style.emoji} ${style.label}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: style.softFg,
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: SquadColors.card,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          plan.isPrivate
+                              ? Icons.lock_outline
+                              : Icons.public,
+                          size: 12,
+                          color: SquadColors.muted,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          plan.isPrivate ? 'Friends' : 'Public',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: SquadColors.muted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
               Text(
-                'Recaps',
-                style: TextStyle(
-                  fontSize: 16,
+                plan.title,
+                style: const TextStyle(
                   fontWeight: FontWeight.w800,
-                  color: Colors.white,
+                  fontSize: 14,
+                  height: 1.25,
                 ),
+              ),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 12,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  if (plan.location case final loc?)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.place_outlined,
+                            size: 12, color: SquadColors.muted),
+                        const SizedBox(width: 4),
+                        Text(
+                          loc,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: SquadColors.muted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.people_outline,
+                          size: 12, color: SquadColors.muted),
+                      const SizedBox(width: 4),
+                      Text(
+                        '$attendeeCount',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: SquadColors.muted,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    formatTime(plan.startAt),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: SquadColors.muted,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _ProfileCard extends StatelessWidget {
+  const _ProfileCard({
+    required this.title,
+    required this.child,
+    this.titleIcon,
+    this.trailing,
+  });
+
+  final String title;
+  final Widget child;
+  final IconData? titleIcon;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: SquadColors.card,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: SquadColors.cardShadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (titleIcon case final icon?)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Icon(icon, size: 16, color: SquadColors.primary),
+                ),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: SquadColors.muted,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+              ),
+              ?trailing,
+            ],
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
       ),
     );
   }
@@ -1469,42 +1828,6 @@ class _RoundBackButton extends StatelessWidget {
           padding: EdgeInsets.all(10),
           child: Icon(Icons.arrow_back_rounded, size: 22),
         ),
-      ),
-    );
-  }
-}
-
-class _ProfileCard extends StatelessWidget {
-  const _ProfileCard({required this.title, required this.child});
-
-  final String title;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: SquadColors.card,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: SquadColors.cardShadow,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-              color: SquadColors.muted,
-              letterSpacing: 1.2,
-            ),
-          ),
-          const SizedBox(height: 10),
-          child,
-        ],
       ),
     );
   }

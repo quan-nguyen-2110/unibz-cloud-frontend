@@ -15,8 +15,12 @@ class FeedHubService {
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _sub;
   bool _shouldRun = false;
+  bool _hadConnected = false;
+
   void Function(PlanCancelledHubEvent event)? onPlanCancelled;
   void Function(InboxNotificationHubEvent event)? onInboxNotification;
+  void Function(FeedPlanHubEvent event)? onFeedPlanEvent;
+  void Function()? onReconnected;
 
   bool get isConnected => _channel != null;
 
@@ -27,6 +31,7 @@ class FeedHubService {
 
   Future<void> disconnect() async {
     _shouldRun = false;
+    _hadConnected = false;
     await _sub?.cancel();
     _sub = null;
     await _channel?.sink.close();
@@ -40,6 +45,8 @@ class FeedHubService {
       accessToken: authTokenStore.accessToken,
       devUserId: AppConfig.useDevAuth ? AppConfig.devUserId : null,
     );
+
+    final isReconnect = _hadConnected;
 
     await _sub?.cancel();
     await _channel?.sink.close();
@@ -57,6 +64,11 @@ class FeedHubService {
         onDone: () => _scheduleReconnect(),
         cancelOnError: true,
       );
+
+      _hadConnected = true;
+      if (isReconnect) {
+        onReconnected?.call();
+      }
     } catch (_) {
       _scheduleReconnect();
     }
@@ -108,12 +120,21 @@ class FeedHubService {
       const inboxTargets = {
         'newAttendee': 'new_attendee',
         'attendeeLeft': 'attendee_left',
+        'removedFromPlan': 'removed_from_plan',
+        'friendRequest': 'friend_request',
       };
       final inboxType = inboxTargets[target];
-      if (inboxType == null) continue;
+      if (inboxType != null) {
+        final event = inboxNotificationHubEventFromJson(inboxType, json: map);
+        onInboxNotification?.call(event);
+        continue;
+      }
 
-      final event = inboxNotificationHubEventFromJson(inboxType, json: map);
-      onInboxNotification?.call(event);
+      if (target == null) continue;
+      final feedEvent = feedPlanHubEventFromJson(target, map);
+      if (feedEvent != null) {
+        onFeedPlanEvent?.call(feedEvent);
+      }
     }
   }
 }

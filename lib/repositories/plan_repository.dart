@@ -7,6 +7,9 @@ abstract class PlanRepository {
   Future<SquadPlan> createPlan(PlanDraft draft, PlanSource source);
   Future<TapInOutcome?> tapIn(String planId);
   Future<void> tapOut(String planId);
+  Future<void> removeAttendee(String planId, String userId);
   Future<void> cancelPlan(String planId);
   Future<SquadPlan> updatePlan(String planId, PlanDraft draft);
+  Future<List<SquadPlan>> fetchRecaps();
+  Future<SquadPlan> setProfileShare(String planId, {required bool shared});
 }

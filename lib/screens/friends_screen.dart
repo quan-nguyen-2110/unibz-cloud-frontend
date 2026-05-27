@@ -12,14 +12,17 @@ enum _FriendsTab { friends, requests, suggested, find }
 
 /// Friends hub — `squadUp-layout` `friends.tsx` (724828d).
 class FriendsScreen extends StatefulWidget {
-  const FriendsScreen({super.key});
+  const FriendsScreen({super.key, this.openRequestsTab = false});
+
+  /// When true, opens on the incoming-requests tab (e.g. from a notification).
+  final bool openRequestsTab;
 
   @override
   State<FriendsScreen> createState() => _FriendsScreenState();
 }
 
 class _FriendsScreenState extends State<FriendsScreen> {
-  _FriendsTab _tab = _FriendsTab.friends;
+  late _FriendsTab _tab;
   final _query = TextEditingController();
   List<SquadUser> _remoteSearchResults = [];
   bool _searching = false;
@@ -27,6 +30,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
   @override
   void initState() {
     super.initState();
+    _tab = widget.openRequestsTab ? _FriendsTab.requests : _FriendsTab.friends;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AppState>().refreshFriendsFromApi();
     });

@@ -7,6 +7,9 @@ enum PlanSource { manual, voice, suggestion }
 /// Who can see a plan — `squadUp-layout` `Plan.visibility`.
 enum PlanVisibility { public, private }
 
+/// Whether the current user hosted or attended a recap plan.
+enum RecapRole { hosted, attended }
+
 /// One line item inside a plan (a hangout can bundle several stops).
 @immutable
 class PlanActivity {
@@ -167,6 +170,8 @@ class SquadPlan {
     DateTime? createdAt,
     this.visibility = PlanVisibility.public,
     List<PlanPhoto>? photos,
+    this.sharedToProfile = false,
+    this.recapRole,
   })  : activities = activities ?? const [],
         tapInUserIds = tapInUserIds ?? [],
         photos = photos ?? const [],
@@ -192,11 +197,19 @@ class SquadPlan {
   final PlanVisibility visibility;
   final List<PlanPhoto> photos;
 
+  /// Past plan shared to the user's profile (Recaps tab).
+  final bool sharedToProfile;
+
+  /// Set on recap/profile-recap responses for the viewing user.
+  final RecapRole? recapRole;
+
   int get tapInCount => tapInUserIds.length;
 
   bool get hasStarted => !DateTime.now().toUtc().isBefore(startAt.toUtc());
 
   bool get isPrivate => visibility == PlanVisibility.private;
+
+  bool get isHostedRecap => recapRole == RecapRole.hosted;
 
   bool userHasTappedIn(String userId) => tapInUserIds.contains(userId);
 
@@ -237,6 +250,8 @@ class SquadNotification {
     this.hostId,
     this.hostName,
     this.planTitle,
+    this.requesterId,
+    this.requesterName,
   });
 
   final String id;
@@ -249,6 +264,8 @@ class SquadNotification {
   final String? hostId;
   final String? hostName;
   final String? planTitle;
+  final String? requesterId;
+  final String? requesterName;
 
   bool get isPlanCancelled => type == 'plan_cancelled';
 
@@ -259,6 +276,63 @@ class SquadNotification {
   bool get isNewAttendee => type == 'new_attendee';
 
   bool get isAttendeeLeft => type == 'attendee_left';
+
+  bool get isRemovedFromPlan => type == 'removed_from_plan';
+}
+
+/// Feed-wide realtime event from `/hub/feed` broadcasts (plan tap-in, lock, etc.).
+enum FeedPlanHubKind { created, tapIn, tapOut, locked, updated }
+
+@immutable
+class FeedPlanHubEvent {
+  const FeedPlanHubEvent._({
+    required this.kind,
+    this.plan,
+    this.planId,
+    this.userId,
+    this.tapInCount,
+  });
+
+  const FeedPlanHubEvent.created(SquadPlan plan)
+      : this._(kind: FeedPlanHubKind.created, plan: plan);
+
+  const FeedPlanHubEvent.updated(SquadPlan plan)
+      : this._(kind: FeedPlanHubKind.updated, plan: plan);
+
+  const FeedPlanHubEvent.tapIn({
+    required String planId,
+    required String userId,
+    int? tapInCount,
+  }) : this._(
+          kind: FeedPlanHubKind.tapIn,
+          planId: planId,
+          userId: userId,
+          tapInCount: tapInCount,
+        );
+
+  const FeedPlanHubEvent.tapOut({
+    required String planId,
+    required String userId,
+  }) : this._(
+          kind: FeedPlanHubKind.tapOut,
+          planId: planId,
+          userId: userId,
+        );
+
+  const FeedPlanHubEvent.locked({
+    required String planId,
+    int? tapInCount,
+  }) : this._(
+          kind: FeedPlanHubKind.locked,
+          planId: planId,
+          tapInCount: tapInCount,
+        );
+
+  final FeedPlanHubKind kind;
+  final SquadPlan? plan;
+  final String? planId;
+  final String? userId;
+  final int? tapInCount;
 }
 
 /// Realtime inbox payload from `/hub/feed` (planCancelled, newAttendee, attendeeLeft).
@@ -275,6 +349,8 @@ class InboxNotificationHubEvent {
     this.planTitle,
     this.attendeeId,
     this.attendeeName,
+    this.requesterId,
+    this.requesterName,
   });
 
   final String type;
@@ -287,6 +363,8 @@ class InboxNotificationHubEvent {
   final String? planTitle;
   final String? attendeeId;
   final String? attendeeName;
+  final String? requesterId;
+  final String? requesterName;
 
   bool get isPlanCancelled => type == 'plan_cancelled';
 }

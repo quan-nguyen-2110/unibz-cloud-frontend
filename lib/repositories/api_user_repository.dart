@@ -47,4 +47,12 @@ class ApiUserRepository {
     if (body.isEmpty) return;
     await _client.putJson('/users/me', body: body);
   }
+
+  Future<List<SquadPlan>> fetchProfileRecaps(String userId) async {
+    final data = await _client.getJson('/users/$userId/profile-recaps');
+    final list = data['plans'] as List<dynamic>? ?? [];
+    return list
+        .map((e) => squadPlanFromJson(e as Map<String, dynamic>))
+        .toList();
+  }
 }

@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show Timer, unawaited;
 
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
@@ -39,6 +39,26 @@ class AppState extends ChangeNotifier {
   List<SquadNotification> notifications = [];
   String? planCancelledToast;
   String? planCancelledToastPlanId;
+  String? removedFromPlanToast;
+  String? removedFromPlanToastPlanId;
+
+  int? shellTabRequest;
+
+  void openShellTab(int index) {
+    shellTabRequest = index;
+    notifyListeners();
+  }
+
+  void consumeShellTabRequest() {
+    shellTabRequest = null;
+  }
+
+  /// Set by [HomeShell] to play confetti when a plan locks via realtime sync.
+  void Function()? onSquadLockedCelebration;
+
+  final Set<String> _pendingPlanSyncs = {};
+  final Set<String> _pendingLockCelebrations = {};
+  Timer? _planSyncDebounce;
 
   int get unreadNotificationCount =>
       notifications.where((n) => !n.read).length;
@@ -177,16 +197,22 @@ class AppState extends ChangeNotifier {
     outgoingRequestIds.clear();
     plans.clear();
     recentPlans.clear();
+    recapPlans.clear();
+    recapPlansError = null;
     cancelledPlanIds.clear();
     notifications.clear();
     planCancelledToast = null;
     planCancelledToastPlanId = null;
+    removedFromPlanToast = null;
+    removedFromPlanToastPlanId = null;
     notifyListeners();
   }
 
   Future<void> _connectRealtime() async {
     _feedHub.onPlanCancelled = _onPlanCancelledHub;
     _feedHub.onInboxNotification = _onInboxNotificationHub;
+    _feedHub.onFeedPlanEvent = _onFeedPlanHub;
+    _feedHub.onReconnected = _onFeedHubReconnected;
     try {
       await _feedHub.connect();
       await refreshNotifications();
@@ -196,9 +222,115 @@ class AppState extends ChangeNotifier {
   }
 
   void _disconnectRealtime() {
+    _planSyncDebounce?.cancel();
+    _planSyncDebounce = null;
+    _pendingPlanSyncs.clear();
+    _pendingLockCelebrations.clear();
     _feedHub.onPlanCancelled = null;
     _feedHub.onInboxNotification = null;
+    _feedHub.onFeedPlanEvent = null;
+    _feedHub.onReconnected = null;
     unawaited(_feedHub.disconnect());
+  }
+
+  void _onFeedHubReconnected() {
+    if (!isAuthenticated) return;
+    unawaited(refreshSquadFromApi());
+  }
+
+  void _onFeedPlanHub(FeedPlanHubEvent event) {
+    switch (event.kind) {
+      case FeedPlanHubKind.created:
+      case FeedPlanHubKind.updated:
+        final plan = event.plan;
+        if (plan == null) return;
+        _upsertPlanFromHub(plan);
+        notifyListeners();
+        return;
+      case FeedPlanHubKind.tapIn:
+      case FeedPlanHubKind.tapOut:
+        final uid = currentUser?.id;
+        if (uid != null &&
+            event.userId != null &&
+            event.userId == uid) {
+          return;
+        }
+        final id = event.planId;
+        if (id == null || id.isEmpty) return;
+        _schedulePlanSync(id);
+        return;
+      case FeedPlanHubKind.locked:
+        final id = event.planId;
+        if (id == null || id.isEmpty) return;
+        _schedulePlanSync(id, celebrateOnLock: true);
+        return;
+    }
+  }
+
+  void _schedulePlanSync(String planId, {bool celebrateOnLock = false}) {
+    _pendingPlanSyncs.add(planId);
+    if (celebrateOnLock) _pendingLockCelebrations.add(planId);
+    _planSyncDebounce?.cancel();
+    _planSyncDebounce = Timer(const Duration(milliseconds: 300), () {
+      final ids = _pendingPlanSyncs.toList();
+      final lockIds = _pendingLockCelebrations.toList();
+      _pendingPlanSyncs.clear();
+      _pendingLockCelebrations.clear();
+      unawaited(_flushPlanSyncs(ids, lockIds));
+    });
+  }
+
+  Future<void> _flushPlanSyncs(
+    List<String> planIds,
+    List<String> celebrateLockPlanIds,
+  ) async {
+    var celebrate = false;
+    for (final id in planIds) {
+      try {
+        final before = _findPlan(id)?.status;
+        await _syncPlanFromApi(id);
+        final after = _findPlan(id)?.status;
+        if (before == PlanStatus.active &&
+            after == PlanStatus.locked &&
+            celebrateLockPlanIds.contains(id)) {
+          celebrate = true;
+        }
+      } catch (_) {
+        /* keep other syncs */
+      }
+    }
+    notifyListeners();
+    if (celebrate) onSquadLockedCelebration?.call();
+  }
+
+  bool _shouldShowInFeed(SquadPlan plan) {
+    final uid = currentUser?.id;
+    if (uid == null) return false;
+    if (cancelledPlanIds.contains(plan.id)) return false;
+    if (plan.status != PlanStatus.active && plan.status != PlanStatus.locked) {
+      return false;
+    }
+    if (blockedUserIds.contains(plan.creatorId)) return false;
+    if (plan.creatorId == uid) return true;
+    if (friendIds.contains(plan.creatorId)) return true;
+    if (!plan.isPrivate) return true;
+    return false;
+  }
+
+  void _upsertPlanFromHub(SquadPlan plan) {
+    if (cancelledPlanIds.contains(plan.id)) return;
+
+    final existing = _findPlan(plan.id);
+    if (existing != null) {
+      _replacePlan(plan);
+      unawaited(users.prefetch([plan.creatorId, ...plan.tapInUserIds]));
+      return;
+    }
+
+    if (!_shouldShowInFeed(plan)) return;
+
+    plans.insert(0, plan);
+    unawaited(users.prefetch([plan.creatorId, ...plan.tapInUserIds]));
   }
 
   void _onPlanCancelledHub(PlanCancelledHubEvent event) {
@@ -209,9 +341,29 @@ class AppState extends ChangeNotifier {
   }
 
   void _onInboxNotificationHub(InboxNotificationHubEvent event) {
+    if (event.type == 'removed_from_plan') {
+      removedFromPlanToast =
+          event.body.isNotEmpty ? event.body : event.title;
+      removedFromPlanToastPlanId = event.planId;
+      final planId = event.planId;
+      if (planId != null && planId.isNotEmpty) {
+        unawaited(_syncPlanFromApi(planId));
+      }
+    }
+
+    if (event.type == 'friend_request') {
+      _applyFriendRequestNotification(event);
+    }
+
     if (event.notificationId != null) {
       final id = event.notificationId!;
-      if (notifications.any((n) => n.id == id)) return;
+      if (notifications.any((n) => n.id == id)) {
+        if (event.type == 'removed_from_plan' ||
+            event.type == 'friend_request') {
+          notifyListeners();
+        }
+        return;
+      }
       notifications.insert(
         0,
         SquadNotification(
@@ -225,12 +377,30 @@ class AppState extends ChangeNotifier {
           hostId: event.hostId,
           hostName: event.hostName,
           planTitle: event.planTitle,
+          requesterId: event.requesterId,
+          requesterName: event.requesterName,
         ),
       );
       notifyListeners();
       return;
     }
     unawaited(refreshNotifications());
+  }
+
+  void _applyFriendRequestNotification(InboxNotificationHubEvent event) {
+    final requesterId = event.requesterId;
+    if (requesterId != null && requesterId.isNotEmpty) {
+      incomingRequestIds.add(requesterId);
+      unawaited(users.prefetch([requesterId]));
+    }
+    unawaited(refreshFriendsFromApi());
+  }
+
+  void clearRemovedFromPlanToast() {
+    if (removedFromPlanToast == null) return;
+    removedFromPlanToast = null;
+    removedFromPlanToastPlanId = null;
+    notifyListeners();
   }
 
   void clearPlanCancelledToast() {
@@ -319,12 +489,18 @@ class AppState extends ChangeNotifier {
   final Set<String> blockedUserIds = {};
   final List<SquadPlan> plans = [];
   final List<SquadPlan> recentPlans = [];
+  final List<SquadPlan> recapPlans = [];
+  bool recapPlansLoading = false;
+  String? recapPlansError;
   final Set<String> cancelledPlanIds = {};
   final Set<String> incomingRequestIds = {};
   final Set<String> outgoingRequestIds = {};
 
   SquadPlan? tryPlanById(String id) {
     for (final p in recentPlans) {
+      if (p.id == id) return p;
+    }
+    for (final p in recapPlans) {
       if (p.id == id) return p;
     }
     for (final p in plans) {
@@ -762,6 +938,26 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  Future<void> removeAttendee(String planId, String attendeeId) async {
+    final uid = currentUser?.id;
+    if (uid == null) return;
+
+    final plan = _findPlan(planId);
+    if (plan == null || !isHost(plan) || isPlanCancelled(planId)) {
+      return;
+    }
+    if (attendeeId == plan.creatorId) return;
+    try {
+      await _planRepo.removeAttendee(planId, attendeeId);
+      await _syncPlanFromApi(planId);
+      notifyListeners();
+    } catch (e) {
+      apiProbeMessage = 'Remove attendee failed: $e';
+      notifyListeners();
+      rethrow;
+    }
+  }
+
   int plansPostedCount() {
     final uid = currentUser?.id;
     if (uid == null) return 0;
@@ -814,6 +1010,57 @@ class AppState extends ChangeNotifier {
       apiProbeMessage = 'Feed sync failed: $e';
     }
     notifyListeners();
+  }
+
+  Future<void> refreshRecapsFromApi() async {
+    recapPlansLoading = true;
+    recapPlansError = null;
+    notifyListeners();
+    try {
+      final list = await _planRepo.fetchRecaps();
+      recapPlans
+        ..clear()
+        ..addAll(list);
+      recapPlansError = null;
+    } catch (e) {
+      recapPlansError = e.toString();
+    } finally {
+      recapPlansLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> toggleProfileShare(SquadPlan plan, bool shared) async {
+    final updated = await _planRepo.setProfileShare(
+      plan.id,
+      shared: shared,
+    );
+    for (var i = 0; i < recapPlans.length; i++) {
+      if (recapPlans[i].id == updated.id) {
+        recapPlans[i] = updated;
+        break;
+      }
+    }
+    _upsertPlanInCaches(updated);
+    notifyListeners();
+  }
+
+  Future<List<SquadPlan>> fetchProfileRecaps(String userId) =>
+      _userRepo.fetchProfileRecaps(userId);
+
+  void _upsertPlanInCaches(SquadPlan updated) {
+    for (var i = 0; i < plans.length; i++) {
+      if (plans[i].id == updated.id) {
+        plans[i] = updated;
+        return;
+      }
+    }
+    for (var i = 0; i < recentPlans.length; i++) {
+      if (recentPlans[i].id == updated.id) {
+        recentPlans[i] = updated;
+        return;
+      }
+    }
   }
 
   Future<void> refreshFriendsFromApi() async {

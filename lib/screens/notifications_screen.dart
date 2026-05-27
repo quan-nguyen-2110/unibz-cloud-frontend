@@ -1,4 +1,4 @@
-// Migrated from squadUp-layout/src/routes/notifications.tsx (f50f3a7).
+// Migrated from squadUp-layout/src/routes/notifications.tsx (0e57c36).
 
 import 'dart:async';
 
@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../state/app_state.dart';
 import '../theme/squad_theme.dart';
+import '../widgets/notification_visual.dart';
 import '../widgets/squad_layout_widgets.dart';
 import 'friends_screen.dart';
 import 'plan_detail_screen.dart';
@@ -120,7 +121,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
     if (n.isFriendRequest) {
       await Navigator.of(context).push<void>(
-        MaterialPageRoute<void>(builder: (_) => const FriendsScreen()),
+        MaterialPageRoute<void>(
+          builder: (_) => const FriendsScreen(openRequestsTab: true),
+        ),
       );
     }
   }
@@ -157,7 +160,7 @@ class _EmptyNotificationsCard extends StatelessWidget {
             'No notifications yet',
             style: squadDisplay(context, 18),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           Text(
             "We'll ping you here when a host updates a plan or someone wants to squad up.",
             textAlign: TextAlign.center,
@@ -191,7 +194,7 @@ class _ClearAllButton extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.delete_outline_rounded, size: 18, color: SquadColors.text),
+              Icon(Icons.delete_outline_rounded, size: 16, color: SquadColors.text),
               const SizedBox(width: 6),
               Text(
                 'Clear all',
@@ -221,18 +224,15 @@ class _NotificationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final n = notification;
-    final icon = _iconFor(n);
-    final tint = _tintFor(n);
+    final visual = NotificationVisual.forNotification(n);
 
     return Material(
       color: SquadColors.card,
       borderRadius: BorderRadius.circular(16),
-      shadowColor: SquadColors.primary.withValues(alpha: 0.12),
-      elevation: 0,
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: onTap,
-        child: DecoratedBox(
+        child: Ink(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
             boxShadow: SquadColors.cardShadow,
@@ -249,10 +249,10 @@ class _NotificationTile extends StatelessWidget {
                   width: 40,
                   height: 40,
                   decoration: BoxDecoration(
-                    color: tint.background,
+                    color: visual.background,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(icon, size: 20, color: tint.foreground),
+                  child: Icon(visual.icon, size: 20, color: visual.foreground),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -265,12 +265,14 @@ class _NotificationTile extends StatelessWidget {
                             child: Text(
                               n.title,
                               style: const TextStyle(
-                                fontWeight: FontWeight.w800,
+                                fontWeight: FontWeight.w700,
                                 fontSize: 14,
+                                color: SquadColors.text,
                               ),
                             ),
                           ),
-                          if (!n.read)
+                          if (!n.read) ...[
+                            const SizedBox(width: 8),
                             Container(
                               width: 8,
                               height: 8,
@@ -279,15 +281,16 @@ class _NotificationTile extends StatelessWidget {
                                 shape: BoxShape.circle,
                               ),
                             ),
+                          ],
                         ],
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 2),
                       Text(
                         n.body,
                         style: TextStyle(
                           fontSize: 14,
                           color: SquadColors.muted,
-                          height: 1.35,
+                          height: 1.25,
                         ),
                       ),
                       const SizedBox(height: 6),
@@ -304,40 +307,6 @@ class _NotificationTile extends StatelessWidget {
   }
 }
 
-class _Tint {
-  const _Tint({required this.background, required this.foreground});
-
-  final Color background;
-  final Color foreground;
-}
-
-_Tint _tintFor(SquadNotification n) {
-  if (n.isPlanCancelled) {
-    return _Tint(
-      background: SquadColors.danger.withValues(alpha: 0.15),
-      foreground: SquadColors.danger,
-    );
-  }
-  if (n.isFriendRequest) {
-    return _Tint(
-      background: SquadColors.secondary.withValues(alpha: 0.2),
-      foreground: SquadColors.secondary,
-    );
-  }
-  return _Tint(
-    background: SquadColors.primary.withValues(alpha: 0.15),
-    foreground: SquadColors.primary,
-  );
-}
-
-IconData _iconFor(SquadNotification n) {
-  if (n.isPlanCancelled) return Icons.event_busy_rounded;
-  if (n.isPlanReminder) return Icons.schedule_rounded;
-  if (n.isFriendRequest) return Icons.person_add_alt_1_rounded;
-  if (n.isNewAttendee || n.isAttendeeLeft) return Icons.groups_rounded;
-  return Icons.notifications_outlined;
-}
-
 class _TimeAgo extends StatefulWidget {
   const _TimeAgo({required this.createdAt});
 
@@ -349,10 +318,14 @@ class _TimeAgo extends StatefulWidget {
 
 class _TimeAgoState extends State<_TimeAgo> {
   Timer? _timer;
+  var _mounted = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _mounted = true);
+    });
     _timer = Timer.periodic(const Duration(minutes: 1), (_) {
       if (mounted) setState(() {});
     });
@@ -366,12 +339,20 @@ class _TimeAgoState extends State<_TimeAgo> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_mounted) {
+      return Opacity(
+        opacity: 0,
+        child: Text(
+          '·',
+          style: TextStyle(fontSize: 11, color: SquadColors.muted),
+        ),
+      );
+    }
     return Text(
       _formatTimeAgo(widget.createdAt),
       style: TextStyle(
         fontSize: 11,
         color: SquadColors.muted,
-        fontWeight: FontWeight.w600,
       ),
     );
   }

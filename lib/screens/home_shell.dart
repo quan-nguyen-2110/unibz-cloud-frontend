@@ -6,11 +6,12 @@ import 'package:provider/provider.dart';
 
 import '../state/app_state.dart';
 import '../theme/squad_theme.dart';
+// Bottom nav migrated from squadUp-layout `PhoneShell.tsx` (22a7a55).
 import 'create_tab_screen.dart';
-import 'discover_screen.dart';
 import 'feed_screen.dart';
 import 'my_plans_screen.dart';
 import 'plan_detail_screen.dart';
+import 'recaps_screen.dart';
 
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
@@ -22,16 +23,24 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   var _index = 0;
   late ConfettiController _confetti;
-  String? _lastShownToast;
+  AppState? _app;
+  String? _lastShownCancelledToast;
+  String? _lastShownRemovedToast;
 
   @override
   void initState() {
     super.initState();
     _confetti = ConfettiController(duration: const Duration(seconds: 2));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _app = context.read<AppState>();
+      _app?.onSquadLockedCelebration = _celebrate;
+    });
   }
 
   @override
   void dispose() {
+    _app?.onSquadLockedCelebration = null;
     _confetti.dispose();
     super.dispose();
   }
@@ -42,8 +51,8 @@ class _HomeShellState extends State<HomeShell> {
 
   void _maybeShowPlanCancelledToast(BuildContext context, AppState app) {
     final toast = app.planCancelledToast;
-    if (toast == null || toast == _lastShownToast) return;
-    _lastShownToast = toast;
+    if (toast == null || toast == _lastShownCancelledToast) return;
+    _lastShownCancelledToast = toast;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -68,10 +77,48 @@ class _HomeShellState extends State<HomeShell> {
     });
   }
 
+  void _maybeShowRemovedFromPlanToast(BuildContext context, AppState app) {
+    final toast = app.removedFromPlanToast;
+    if (toast == null || toast == _lastShownRemovedToast) return;
+    _lastShownRemovedToast = toast;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(toast),
+          action: SnackBarAction(
+            label: 'View',
+            onPressed: () {
+              final planId = app.removedFromPlanToastPlanId;
+              if (planId == null || planId.isEmpty) return;
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => PlanDetailScreen(planId: planId),
+                ),
+              );
+            },
+          ),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+      app.clearRemovedFromPlanToast();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     _maybeShowPlanCancelledToast(context, app);
+    _maybeShowRemovedFromPlanToast(context, app);
+
+    final tabRequest = app.shellTabRequest;
+    if (tabRequest != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() => _index = tabRequest);
+        app.consumeShellTabRequest();
+      });
+    }
 
     return DecoratedBox(
       decoration: const BoxDecoration(gradient: SquadColors.backgroundGradient),
@@ -84,12 +131,12 @@ class _HomeShellState extends State<HomeShell> {
               index: _index,
               children: [
                 FeedScreen(onSquadLocked: _celebrate),
-                const DiscoverScreen(),
-                const CreateTabScreen(),
                 MyPlansScreen(
                   onSwitchToHome: () => setState(() => _index = 0),
                   onSwitchToCreate: () => setState(() => _index = 2),
                 ),
+                const CreateTabScreen(),
+                const RecapsScreen(),
               ],
             ),
             bottomNavigationBar: _SquadBottomNav(
@@ -155,8 +202,8 @@ class _SquadBottomNav extends StatelessWidget {
                   onTap: () => onSelect(0),
                 ),
                 _SideNavItem(
-                  icon: Icons.map_rounded,
-                  label: 'Discover',
+                  icon: Icons.calendar_month_rounded,
+                  label: 'My Plans',
                   selected: index == 1,
                   onTap: () => onSelect(1),
                 ),
@@ -165,8 +212,8 @@ class _SquadBottomNav extends StatelessWidget {
                   onTap: () => onSelect(2),
                 ),
                 _SideNavItem(
-                  icon: Icons.calendar_month_rounded,
-                  label: 'My Plans',
+                  icon: Icons.auto_awesome_rounded,
+                  label: 'Recaps',
                   selected: index == 3,
                   onTap: () => onSelect(3),
                 ),

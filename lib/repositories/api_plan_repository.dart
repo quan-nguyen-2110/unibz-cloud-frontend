@@ -49,6 +49,11 @@ class ApiPlanRepository implements PlanRepository {
   }
 
   @override
+  Future<void> removeAttendee(String planId, String userId) async {
+    await _client.deleteJson('/plans/$planId/attendees/$userId');
+  }
+
+  @override
   Future<void> cancelPlan(String planId) async {
     await _client.deleteJson('/plans/$planId');
   }
@@ -58,6 +63,27 @@ class ApiPlanRepository implements PlanRepository {
     final data = await _client.putJson(
       '/plans/$planId',
       body: planDraftToJson(draft, PlanSource.manual),
+    );
+    return squadPlanFromJson(data['plan'] as Map<String, dynamic>);
+  }
+
+  @override
+  Future<List<SquadPlan>> fetchRecaps() async {
+    final data = await _client.getJson('/plans/recaps');
+    final list = data['plans'] as List<dynamic>? ?? [];
+    return list
+        .map((e) => squadPlanFromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  @override
+  Future<SquadPlan> setProfileShare(
+    String planId, {
+    required bool shared,
+  }) async {
+    final data = await _client.patchJson(
+      '/plans/$planId/profile-share',
+      body: {'sharedToProfile': shared},
     );
     return squadPlanFromJson(data['plan'] as Map<String, dynamic>);
   }
