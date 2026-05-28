@@ -189,7 +189,9 @@ class _VoiceDictateDialogState extends State<_VoiceDictateDialog> {
     if (_recordingActive) {
       await _stopListening();
     } else {
-      _commitSegment();
+      // Typed/pasted input path: do not let stale STT buffers overwrite text.
+      _committedPrefix = _transcript.text.trim();
+      _segmentWords = '';
     }
     final text = _transcript.text.trim();
     if (text.isEmpty) {

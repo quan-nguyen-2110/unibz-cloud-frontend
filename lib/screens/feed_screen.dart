@@ -115,11 +115,13 @@ class _FeedScreenState extends State<FeedScreen> {
         final recentItems = app
             .feedRecentPlans()
             .where((p) => planMatchesVibeEmojiFilter(p, _filterEmoji))
-            .toList();
+            .toList()
+          ..sort((a, b) => a.startAt.compareTo(b.startAt));
         final squadItems = app
             .feedSquadPlans()
             .where((p) => planMatchesVibeEmojiFilter(p, _filterEmoji))
-            .toList();
+            .toList()
+          ..sort((a, b) => a.startAt.compareTo(b.startAt));
         final going = _goingCount(app);
         final incomingCount = app.incomingRequestIds.length;
         final unreadNotifs = app.unreadNotificationCount;
