@@ -43,39 +43,41 @@ class TranscriptionJob {
 
 class GeneratedVoicePlan {
   const GeneratedVoicePlan({
+    required this.vibeEmoji,
+    this.vibeName,
     required this.title,
-    required this.emoji,
-    required this.vibe,
-    this.locationName,
-    required this.maxAttendees,
-    required this.expiresInMinutes,
-    required this.summary,
+    required this.description,
+    required this.startAt,
+    this.location,
+    required this.maxPeople,
   });
 
+  final String vibeEmoji;
+  final String? vibeName;
   final String title;
-  final String emoji;
-  final String vibe;
-  final String? locationName;
-  final int maxAttendees;
-  final int expiresInMinutes;
-  final String summary;
+  final String description;
+  final DateTime startAt;
+  final String? location;
+  final int maxPeople;
 
   factory GeneratedVoicePlan.fromJson(Map<String, dynamic> json) {
     final loc = json['location'];
-    String? locationName;
-    if (loc is Map<String, dynamic>) {
-      locationName = loc['name'] as String?;
-    } else if (loc is String) {
-      locationName = loc;
-    }
+    final location = loc is String
+        ? loc
+        : (loc is Map<String, dynamic> ? loc['name'] as String? : null);
+    final rawStartAt = json['startAt'] as String?;
+    final parsedStartAt = rawStartAt == null ? null : DateTime.tryParse(rawStartAt);
+    final fallbackStartAt = DateTime.now().add(const Duration(hours: 2));
     return GeneratedVoicePlan(
-      title: json['title'] as String? ?? 'New plan',
-      emoji: json['emoji'] as String? ?? '✨',
-      vibe: json['vibe'] as String? ?? 'other',
-      locationName: locationName,
-      maxAttendees: json['maxAttendees'] as int? ?? 10,
-      expiresInMinutes: json['expiresInMinutes'] as int? ?? 120,
-      summary: json['summary'] as String? ?? '',
+      vibeEmoji: json['vibeEmoji'] as String? ?? json['emoji'] as String? ?? '✨',
+      vibeName: json['vibeName'] as String?,
+      title: json['title'] as String? ??
+          json['vibeName'] as String? ??
+          'New plan',
+      description: json['description'] as String? ?? json['summary'] as String? ?? '',
+      startAt: parsedStartAt ?? fallbackStartAt,
+      location: location,
+      maxPeople: json['maxPeople'] as int? ?? json['maxAttendees'] as int? ?? -1,
     );
   }
 }
@@ -119,9 +121,15 @@ class ApiVoiceRepository {
   }
 
   Future<GeneratedVoicePlan> generatePlan(String transcript) async {
+    final now = DateTime.now();
     final data = await _client.postJson(
       '/voice/generate-plan',
-      body: {'transcript': transcript},
+      body: {
+        'transcript': transcript,
+        'referenceNow': now.toIso8601String(),
+        'utcOffsetMinutes': now.timeZoneOffset.inMinutes,
+      },
+      silent: true,
     );
     final plan = data['plan'] as Map<String, dynamic>? ?? {};
     return GeneratedVoicePlan.fromJson(plan);

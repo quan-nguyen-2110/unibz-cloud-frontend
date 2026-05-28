@@ -1,66 +1,43 @@
-// Migrated from squadUp-layout/src/routes/create.tsx VoiceDictateDialog (commit 6bc7b3b)
-
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../data/vibe_catalog.dart';
+import '../repositories/api_voice_repository.dart';
+import '../services/api_client.dart';
 import '../theme/squad_theme.dart';
 
 /// Parsed voice mock — fills the create form when user taps "Use this".
 class VoiceDictateSample {
   const VoiceDictateSample({
     required this.text,
+    required this.title,
+    required this.description,
+    required this.vibeEmoji,
+    this.vibeName,
     required this.vibe,
-    required this.when,
+    required this.startAt,
     required this.location,
     required this.people,
   });
 
   final String text;
+  final String title;
+  final String description;
+  final String vibeEmoji;
+  final String? vibeName;
   final SquadVibe vibe;
-  final String when;
+  final DateTime startAt;
   final String location;
   final int people;
 }
 
-const _mockTranscripts = [
-  VoiceDictateSample(
-    text:
-        'Hoops at Riverside Courts tonight, bring water — looking for 4 people.',
-    vibe: SquadVibe.hoops,
-    when: 'Tonight',
-    location: 'Riverside Courts',
-    people: 4,
-  ),
-  VoiceDictateSample(
-    text: 'Chill coffee and study sesh at The Beanery this afternoon for 2.',
-    vibe: SquadVibe.cafe,
-    when: 'Today, 2:00 PM',
-    location: 'The Beanery',
-    people: 2,
-  ),
-  VoiceDictateSample(
-    text:
-        'Mario Kart tourney at my place tonight, snacks on me — squad of 6.',
-    vibe: SquadVibe.gaming,
-    when: 'Tonight',
-    location: 'My Place',
-    people: 6,
-  ),
-  VoiceDictateSample(
-    text: 'Sunset pool laps at City View Pool in an hour, need 4 swimmers.',
-    vibe: SquadVibe.swim,
-    when: 'In 1 hour',
-    location: 'City View Pool',
-    people: 4,
-  ),
-];
+enum _VoicePhase { idle, parsing, error }
 
-enum _VoicePhase { idle, recording, transcribing, ready }
-
-/// UI-only voice dictation (cycles mock transcripts). Returns sample on "Use this".
+/// Transcript-based voice parsing dialog (no mock transcript data).
 Future<VoiceDictateSample?> showVoiceDictateDialog(BuildContext context) {
   return showDialog<VoiceDictateSample>(
     context: context,
@@ -78,73 +55,287 @@ class _VoiceDictateDialog extends StatefulWidget {
 
 class _VoiceDictateDialogState extends State<_VoiceDictateDialog> {
   _VoicePhase _phase = _VoicePhase.idle;
-  int _elapsed = 0;
-  int _sampleIdx = 0;
-  String _shown = '';
-  Timer? _elapsedTimer;
-  Timer? _typeTimer;
-
-  VoiceDictateSample get _sample => _mockTranscripts[_sampleIdx];
+  final _transcript = TextEditingController();
+  final _repo = ApiVoiceRepository();
+  final _speech = stt.SpeechToText();
+  String? _errorText;
+  int _seconds = 0;
+  Timer? _clock;
+  bool _speechReady = false;
+  /// User tapped mic to record; only cleared when they tap stop.
+  bool _recordingActive = false;
+  /// True while the native recognizer is actively listening.
+  bool _isListening = false;
+  /// Text committed before the current recognition segment.
+  String _committedPrefix = '';
+  /// Words from the current segment (partial or final).
+  String _segmentWords = '';
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _startRecording());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _initSpeech());
   }
 
   @override
   void dispose() {
-    _clearTimers();
+    _clock?.cancel();
+    _speech.stop();
+    _transcript.dispose();
     super.dispose();
   }
 
-  void _clearTimers() {
-    _elapsedTimer?.cancel();
-    _elapsedTimer = null;
-    _typeTimer?.cancel();
-    _typeTimer = null;
-  }
-
-  void _startRecording() {
-    _clearTimers();
-    setState(() {
-      _phase = _VoicePhase.recording;
-      _elapsed = 0;
-      _shown = '';
-      _sampleIdx = (_sampleIdx + 1) % _mockTranscripts.length;
-    });
-    _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _elapsed++);
-    });
-  }
-
-  void _stopRecording() {
-    _elapsedTimer?.cancel();
-    _elapsedTimer = null;
-    setState(() => _phase = _VoicePhase.transcribing);
-    Future<void>.delayed(const Duration(milliseconds: 600), () {
+  Future<void> _initSpeech() async {
+    try {
+      final available = await _speech.initialize(
+        onStatus: (status) {
+          if (!mounted) return;
+          if (status == 'notListening' && _recordingActive) {
+            _commitSegment();
+            setState(() => _isListening = false);
+            // Auto-pause from silence: keep recording and start a new segment.
+            if (_recordingActive) {
+              Future<void>.delayed(const Duration(milliseconds: 200), () {
+                if (!mounted || !_recordingActive || _isListening) return;
+                _beginListenSegment();
+              });
+            }
+          } else if (status == 'notListening') {
+            setState(() => _isListening = false);
+          }
+        },
+        onError: (_) {
+          if (!mounted) return;
+          setState(() {
+            _phase = _VoicePhase.error;
+            _errorText = 'Microphone not available. You can still type transcript.';
+            _isListening = false;
+          });
+        },
+      );
       if (!mounted) return;
-      setState(() => _phase = _VoicePhase.ready);
-      var i = 0;
-      _typeTimer = Timer.periodic(const Duration(milliseconds: 25), (t) {
-        if (!mounted) {
-          t.cancel();
-          return;
-        }
-        i += 2;
-        setState(() => _shown = _sample.text.substring(0, i.clamp(0, _sample.text.length)));
-        if (i >= _sample.text.length) {
-          t.cancel();
-          _typeTimer = null;
-        }
+      setState(() => _speechReady = available);
+    } on MissingPluginException {
+      if (!mounted) return;
+      setState(() {
+        _speechReady = false;
+        _phase = _VoicePhase.error;
+        _errorText =
+            'Voice plugin not loaded yet. Fully restart the app (stop + flutter run).';
       });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _speechReady = false;
+        _phase = _VoicePhase.error;
+        _errorText = 'Could not initialize microphone. You can still type transcript.';
+      });
+    }
+  }
+
+  void _startClock() {
+    _clock?.cancel();
+    _seconds = 0;
+    _clock = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _seconds++);
     });
+  }
+
+  void _commitSegment() {
+    _mergeSegmentIntoCommitted(_segmentWords);
+    _segmentWords = '';
+    _syncTranscriptField();
+  }
+
+  /// Avoid doubling when STT returns cumulative text across pause/resume.
+  void _mergeSegmentIntoCommitted(String segment) {
+    final s = segment.trim();
+    if (s.isEmpty) return;
+    final c = _committedPrefix.trim();
+    if (c.isEmpty) {
+      _committedPrefix = s;
+      return;
+    }
+    if (s == c || c.endsWith(s)) return;
+    if (s.startsWith(c)) {
+      _committedPrefix = s;
+      return;
+    }
+    _committedPrefix = '$c $s';
+  }
+
+  void _syncTranscriptField() {
+    final c = _committedPrefix.trim();
+    final s = _segmentWords.trim();
+    if (c.isEmpty) {
+      _transcript.text = s;
+      return;
+    }
+    if (s.isEmpty) {
+      _transcript.text = c;
+      return;
+    }
+    if (s.startsWith(c)) {
+      _transcript.text = s;
+    } else if (c.endsWith(s)) {
+      _transcript.text = c;
+    } else {
+      _transcript.text = '$c $s';
+    }
+  }
+
+  Future<void> _parseTranscript() async {
+    if (_recordingActive) {
+      await _stopListening();
+    } else {
+      _commitSegment();
+    }
+    final text = _transcript.text.trim();
+    if (text.isEmpty) {
+      setState(() {
+        _phase = _VoicePhase.error;
+        _errorText = 'Say or paste something first.';
+      });
+      return;
+    }
+    setState(() {
+      _phase = _VoicePhase.parsing;
+      _errorText = null;
+    });
+    try {
+      final generated = await _repo.generatePlan(text);
+      if (!mounted) return;
+      final vibe = squadVibeFromEmoji(generated.vibeEmoji) ??
+          _fallbackVibe('${generated.title} ${generated.description}');
+      Navigator.of(context).pop(
+        VoiceDictateSample(
+          text: text,
+          title: generated.title,
+          description: generated.description.isEmpty ? text : generated.description,
+          vibeEmoji: generated.vibeEmoji,
+          vibeName: generated.vibeName,
+          vibe: vibe,
+          startAt: generated.startAt,
+          location: (generated.location?.trim().isNotEmpty ?? false)
+              ? generated.location!.trim()
+              : 'TBD',
+          people: generated.maxPeople < 0 ? -1 : generated.maxPeople.clamp(2, 30),
+        ),
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      if (e.statusCode == 401) return;
+      setState(() {
+        _phase = _VoicePhase.error;
+        _errorText = e.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _phase = _VoicePhase.error;
+        _errorText = 'Could not parse your voice plan. Check backend/OpenRouter config.';
+      });
+    }
+  }
+
+  Future<void> _toggleListening() async {
+    if (_phase == _VoicePhase.parsing) return;
+    if (_recordingActive) {
+      await _stopListening();
+    } else {
+      await _startListening();
+    }
+  }
+
+  Future<void> _startListening() async {
+    if (!_speechReady) {
+      await _initSpeech();
+    }
+    if (!_speechReady) {
+      setState(() {
+        _phase = _VoicePhase.error;
+        _errorText = 'Please allow microphone permission to auto-fill transcript.';
+      });
+      return;
+    }
+    final startingFresh = !_recordingActive;
+    setState(() {
+      _errorText = null;
+      _phase = _VoicePhase.idle;
+      _recordingActive = true;
+    });
+    if (startingFresh) {
+      _committedPrefix = _transcript.text.trim();
+      _segmentWords = '';
+    }
+    _startClock();
+    await _beginListenSegment();
+  }
+
+  Future<void> _beginListenSegment() async {
+    if (!_recordingActive || !_speechReady) return;
+    setState(() => _isListening = true);
+    try {
+      await _speech.listen(
+        onResult: (result) {
+          if (!mounted) return;
+          _segmentWords = result.recognizedWords;
+          setState(_syncTranscriptField);
+        },
+        listenOptions: stt.SpeechListenOptions(
+          listenMode: stt.ListenMode.dictation,
+          partialResults: true,
+          cancelOnError: false,
+          listenFor: const Duration(seconds: 120),
+          pauseFor: const Duration(seconds: 10),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _recordingActive = false;
+        _isListening = false;
+        _phase = _VoicePhase.error;
+        _errorText = 'Could not continue listening. Tap mic to try again.';
+      });
+    }
+  }
+
+  Future<void> _stopListening() async {
+    _recordingActive = false;
+    await _speech.stop();
+    _commitSegment();
+    if (!mounted) return;
+    setState(() => _isListening = false);
+    _clock?.cancel();
+    _clock = null;
   }
 
   String get _timeLabel {
-    final mm = (_elapsed ~/ 60).toString().padLeft(2, '0');
-    final ss = (_elapsed % 60).toString().padLeft(2, '0');
+    final mm = (_seconds ~/ 60).toString().padLeft(2, '0');
+    final ss = (_seconds % 60).toString().padLeft(2, '0');
     return '$mm:$ss';
+  }
+
+  SquadVibe _fallbackVibe(String text) {
+    final lower = text.toLowerCase();
+    if (RegExp(r'basketball|soccer|football|tennis|run|gym|hoops|swim|pool').hasMatch(lower)) {
+      return SquadVibe.hoops;
+    }
+    if (RegExp(r'coffee|cafe|brunch|dinner|lunch|pizza|food|restaurant').hasMatch(lower)) {
+      return SquadVibe.cafe;
+    }
+    if (RegExp(r'study|library|homework|project|exam').hasMatch(lower)) {
+      return SquadVibe.study;
+    }
+    if (RegExp(r'game|gaming|mario|fifa|xbox|playstation|ps5|switch').hasMatch(lower)) {
+        return SquadVibe.gaming;
+    }
+    if (RegExp(r'party|club|dance|concert').hasMatch(lower)) return SquadVibe.party;
+    if (RegExp(r'park|hike|trail|outdoor|outdoors').hasMatch(lower)) return SquadVibe.outdoors;
+    if (RegExp(r'movie|cinema|film').hasMatch(lower)) return SquadVibe.movie;
+    return SquadVibe.study;
   }
 
   @override
@@ -174,7 +365,7 @@ class _VoiceDictateDialogState extends State<_VoiceDictateDialog> {
             ),
             const SizedBox(height: 6),
             Text(
-              'Say something like “Hoops at Riverside Courts tonight with 4 people.”',
+              'Tap mic and speak. We auto-fill transcript, then parse with AI.',
               style: GoogleFonts.plusJakartaSans(
                 fontSize: 13,
                 color: SquadColors.muted,
@@ -186,12 +377,12 @@ class _VoiceDictateDialogState extends State<_VoiceDictateDialog> {
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  if (_phase == _VoicePhase.recording) ...[
+                  if (_phase == _VoicePhase.parsing) ...[
                     _PulseRing(size: 96, opacity: 0.25),
                     _PulseRing(size: 112, opacity: 0.12),
                   ],
                   Material(
-                    color: _phase == _VoicePhase.recording
+                    color: _phase == _VoicePhase.parsing
                         ? SquadColors.danger
                         : SquadColors.primary,
                     shape: const CircleBorder(),
@@ -199,22 +390,14 @@ class _VoiceDictateDialogState extends State<_VoiceDictateDialog> {
                     shadowColor: SquadColors.primary.withValues(alpha: 0.35),
                     child: InkWell(
                       customBorder: const CircleBorder(),
-                      onTap: () {
-                        if (_phase == _VoicePhase.recording) {
-                          _stopRecording();
-                        } else {
-                          _startRecording();
-                        }
-                      },
+                      onTap: _toggleListening,
                       child: SizedBox(
                         width: 80,
                         height: 80,
                         child: Icon(
-                          _phase == _VoicePhase.recording
-                              ? Icons.stop_rounded
-                              : Icons.mic_rounded,
+                          _recordingActive ? Icons.stop_rounded : Icons.mic_rounded,
                           color: Colors.white,
-                          size: _phase == _VoicePhase.recording ? 32 : 36,
+                          size: _isListening ? 32 : 36,
                         ),
                       ),
                     ),
@@ -223,14 +406,17 @@ class _VoiceDictateDialogState extends State<_VoiceDictateDialog> {
               ),
             ),
             const SizedBox(height: 16),
-            _Waveform(active: _phase == _VoicePhase.recording),
+            _Waveform(active: _recordingActive),
             const SizedBox(height: 10),
             Text(
               switch (_phase) {
-                _VoicePhase.recording => 'Listening • $_timeLabel',
-                _VoicePhase.transcribing => 'Transcribing…',
-                _VoicePhase.ready => 'Recorded • $_timeLabel',
-                _ => 'Tap mic to start',
+                _VoicePhase.parsing => 'Parsing with AI…',
+                _VoicePhase.error => 'Parse failed',
+                _ => !_speechReady
+                    ? 'Enable mic permission to auto-fill'
+                    : (_recordingActive
+                        ? 'Listening • $_timeLabel (pauses are OK)'
+                        : 'Tap mic to start listening'),
               },
               textAlign: TextAlign.center,
               style: GoogleFonts.plusJakartaSans(
@@ -241,8 +427,30 @@ class _VoiceDictateDialogState extends State<_VoiceDictateDialog> {
               ),
             ),
             const SizedBox(height: 12),
+            TextField(
+              controller: _transcript,
+              maxLines: 4,
+              maxLength: 400,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                hintText: 'Transcript appears here while you speak…',
+                counterText: '',
+              ),
+            ),
+            if (_errorText != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _errorText!,
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 12,
+                  color: SquadColors.danger,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
             Container(
-              constraints: const BoxConstraints(minHeight: 92),
+              constraints: const BoxConstraints(minHeight: 78),
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -250,20 +458,14 @@ class _VoiceDictateDialogState extends State<_VoiceDictateDialog> {
                 borderRadius: BorderRadius.circular(16),
               ),
               child: Text(
-                _phase == _VoicePhase.ready || _shown.isNotEmpty
-                    ? _shown
-                    : _phase == _VoicePhase.transcribing
-                        ? 'Turning your voice into text…'
-                        : 'Your words will appear here…',
+                _phase == _VoicePhase.parsing
+                    ? 'Generating plan fields from transcript…'
+                    : 'Tap "Use this" to parse transcript with AI.',
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 14,
                   height: 1.45,
-                  color: _phase == _VoicePhase.ready || _shown.isNotEmpty
-                      ? SquadColors.text
-                      : SquadColors.muted,
-                  fontStyle: _shown.isEmpty && _phase != _VoicePhase.ready
-                      ? FontStyle.italic
-                      : FontStyle.normal,
+                  color: SquadColors.muted,
+                  fontStyle: FontStyle.italic,
                 ),
               ),
             ),
@@ -283,25 +485,15 @@ class _VoiceDictateDialogState extends State<_VoiceDictateDialog> {
                   icon: const Icon(Icons.close, size: 18),
                   label: const Text('Cancel'),
                 ),
-                if (_phase == _VoicePhase.ready)
-                  OutlinedButton.icon(
-                    onPressed: _startRecording,
-                    style: OutlinedButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                    ),
-                    icon: const Icon(Icons.refresh, size: 18),
-                    label: const Text('Redo'),
-                  ),
                 FilledButton.icon(
-                  onPressed: _phase == _VoicePhase.ready
-                      ? () => Navigator.of(context).pop(_sample)
-                      : null,
+                  onPressed: _phase == _VoicePhase.parsing
+                      ? null
+                      : _parseTranscript,
                   style: FilledButton.styleFrom(
                     visualDensity: VisualDensity.compact,
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                   ),
-                  icon: const Icon(Icons.check, size: 18),
+                  icon: const Icon(Icons.auto_awesome, size: 18),
                   label: const Text('Use this'),
                 ),
               ],

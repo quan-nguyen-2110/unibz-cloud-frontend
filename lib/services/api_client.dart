@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
 import 'api_loading.dart';
 import 'auth_token_store.dart';
+import 'session_expired_handler.dart';
 
 class ApiException implements Exception {
   ApiException(this.statusCode, this.message);
@@ -52,7 +53,7 @@ class ApiClient {
     return _withLoading(
       () async {
         final res = await _client.get(_uri(path, query), headers: _headers());
-        return _decode(res);
+        return _decode(res, path);
       },
       silent: silent,
     );
@@ -70,7 +71,7 @@ class ApiClient {
           headers: _headers(jsonBody: body != null),
           body: body != null ? jsonEncode(body) : null,
         );
-        return _decode(res);
+        return _decode(res, path);
       },
       silent: silent,
     );
@@ -88,7 +89,7 @@ class ApiClient {
           headers: _headers(jsonBody: body != null),
           body: body != null ? jsonEncode(body) : null,
         );
-        return _decode(res);
+        return _decode(res, path);
       },
       silent: silent,
     );
@@ -106,7 +107,7 @@ class ApiClient {
           headers: _headers(jsonBody: body != null),
           body: body != null ? jsonEncode(body) : null,
         );
-        return _decode(res);
+        return _decode(res, path);
       },
       silent: silent,
     );
@@ -119,7 +120,7 @@ class ApiClient {
     return _withLoading(
       () async {
         final res = await _client.delete(_uri(path), headers: _headers());
-        return _decode(res);
+        return _decode(res, path);
       },
       silent: silent,
     );
@@ -138,7 +139,7 @@ class ApiClient {
     }
   }
 
-  Map<String, dynamic> _decode(http.Response res) {
+  Map<String, dynamic> _decode(http.Response res, String path) {
     Map<String, dynamic>? parsed;
     if (res.body.isNotEmpty) {
       final decoded = jsonDecode(res.body);
@@ -147,8 +148,24 @@ class ApiClient {
     if (res.statusCode >= 200 && res.statusCode < 300) {
       return parsed ?? {};
     }
+    if (res.statusCode == 401 && !_isUnauthenticatedAuthPath(path)) {
+      SessionExpiredHandler.instance.onUnauthorized();
+    }
     final msg = _errorMessage(parsed, res.body, res.statusCode);
     throw ApiException(res.statusCode, msg);
+  }
+
+  /// Login/signup 401s are shown on those screens — do not force logout.
+  static bool _isUnauthenticatedAuthPath(String path) {
+    const publicAuth = {
+      '/auth/login',
+      '/auth/register',
+      '/auth/confirm',
+      '/auth/resend-code',
+      '/auth/forgot-password',
+      '/auth/reset-password',
+    };
+    return publicAuth.contains(path);
   }
 
   static String _errorMessage(

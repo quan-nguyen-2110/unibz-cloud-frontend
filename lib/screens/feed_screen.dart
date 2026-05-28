@@ -1,4 +1,4 @@
-// Feed home — `squadUp-layout` `index.tsx` (a960bb6: hosting badge + privacy).
+// Feed home — `squadUp-layout` `index.tsx` (3d2435e).
 
 import 'dart:async';
 
@@ -121,7 +121,6 @@ class _FeedScreenState extends State<FeedScreen> {
             .where((p) => planMatchesVibeEmojiFilter(p, _filterEmoji))
             .toList();
         final going = _goingCount(app);
-        final me = app.currentUser;
         final incomingCount = app.incomingRequestIds.length;
         final unreadNotifs = app.unreadNotificationCount;
         final feedSubtitle = going == 0
@@ -169,21 +168,6 @@ class _FeedScreenState extends State<FeedScreen> {
                           ),
                         );
                       },
-                    ),
-                    const SizedBox(width: 8),
-                    GestureDetector(
-                      onTap: () {
-                        if (uid == null) return;
-                        Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => ProfileScreen(userId: uid),
-                          ),
-                        );
-                      },
-                      child: SquadInitialsAvatar(
-                        initials: displayInitials(me?.displayName ?? 'YO'),
-                        background: SquadColors.primary,
-                      ),
                     ),
                   ],
                 ),

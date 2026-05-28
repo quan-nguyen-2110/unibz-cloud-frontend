@@ -1,4 +1,4 @@
-// Migrated from squadUp-layout/src/routes/create.tsx (3994ab7)
+// Migrated from squadUp-layout/src/routes/create.tsx (a1e9b94)
 
 import 'dart:io' show File;
 import 'package:flutter/foundation.dart';
@@ -27,6 +27,9 @@ class CreateTabScreen extends StatefulWidget {
 
 class _CreateTabScreenState extends State<CreateTabScreen> {
   SquadVibe _vibe = SquadVibe.gaming;
+  String? _customVibeEmoji;
+  final List<String> _aiExtraVibeEmojis = [];
+  final Map<String, String> _aiVibeLabels = {};
   final _desc = TextEditingController();
   final _location = TextEditingController();
   bool _whenNow = true;
@@ -38,6 +41,8 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
   final List<XFile> _photos = [];
   final ImagePicker _imagePicker = ImagePicker();
   bool _posting = false;
+  bool _voicePrefilled = false;
+  String? _voiceTranscript;
 
   static const _counts = [2, 4, 6, 8, 10];
   static const _maxPhotos = 5;
@@ -74,41 +79,56 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
   }
 
   void _applyVoice(VoiceDictateSample s) {
+    final now = DateTime.now();
+    final isNowish = s.startAt.isBefore(now.add(const Duration(minutes: 10)));
+    final mapped = squadVibeFromEmoji(s.vibeEmoji);
     setState(() {
-      _desc.text = s.text.length > 200 ? s.text.substring(0, 200) : s.text;
-      _vibe = s.vibe;
-      if (s.when == 'Now' || s.when == 'In 1 hour') {
+      final desc = s.description.trim().isNotEmpty ? s.description.trim() : s.text.trim();
+      _desc.text = desc.length > 200 ? desc.substring(0, 200) : desc;
+      if (mapped != null) {
+        _vibe = mapped;
+        _customVibeEmoji = null;
+      } else {
+        _customVibeEmoji = s.vibeEmoji.trim().isEmpty ? null : s.vibeEmoji.trim();
+        if (_customVibeEmoji != null) {
+          if (!_aiExtraVibeEmojis.contains(_customVibeEmoji)) {
+            _aiExtraVibeEmojis.add(_customVibeEmoji!);
+          }
+          final label = _vibeLabelFromVoice(s.vibeName, _customVibeEmoji!);
+          if (label != null) _aiVibeLabels[_customVibeEmoji!] = label;
+        }
+      }
+      _voicePrefilled = true;
+      _voiceTranscript = s.text;
+      if (isNowish) {
         _whenNow = true;
       } else {
-        final d = DateTime.now();
-        _whenDate = s.when == 'Tomorrow'
-            ? d.add(const Duration(days: 1))
-            : DateTime(d.year, d.month, d.day);
+        _whenDate = DateTime(s.startAt.year, s.startAt.month, s.startAt.day);
         _whenNow = false;
-        _whenTime = s.when == 'Today, 2:00 PM'
-            ? const TimeOfDay(hour: 14, minute: 0)
-            : const TimeOfDay(hour: 19, minute: 0);
+        _whenTime = TimeOfDay(hour: s.startAt.hour, minute: s.startAt.minute);
       }
       _location.text = s.location;
-      _maxUnlimited = false;
-      _customMax.text = '${_nearestCount(s.people)}';
+      _maxUnlimited = s.people < 0;
+      if (_maxUnlimited) {
+        _customMax.text = '2';
+      } else {
+        _customMax.text = '${s.people.clamp(2, 100)}';
+      }
     });
-    final meta = kVibeMeta[s.vibe]!;
+    final meta = _customVibeEmoji != null
+        ? _styleForCustomEmoji(_customVibeEmoji!)
+        : (kVibeMeta[_vibe] ?? _fallbackVibeStyle);
+    final whenLabel = isNowish
+        ? 'Now'
+        : '${DateFormat('EEE, MMM d').format(s.startAt)} · ${DateFormat('h:mm a').format(s.startAt)}';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'Got it! · ${meta.label} · ${s.when} · @ ${s.location}',
+          'Got it! · ${meta.label} · $whenLabel · @ ${s.location}'
+          '${s.people < 0 ? ' · Unlimited' : ' · max ${s.people}'}',
         ),
       ),
     );
-  }
-
-  int _nearestCount(int people) {
-    var best = _counts.first;
-    for (final c in _counts) {
-      if ((c - people).abs() < (best - people).abs()) best = c;
-    }
-    return best;
   }
 
   int get _parsedMaxPeople {
@@ -124,6 +144,31 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
     if (_maxUnlimited) return;
     final n = int.tryParse(value);
     if (n != null && n >= 1) setState(() {});
+  }
+
+  void _clearForm(BuildContext context) {
+    setState(() {
+      _vibe = SquadVibe.gaming;
+      _customVibeEmoji = null;
+      _aiExtraVibeEmojis.clear();
+      _aiVibeLabels.clear();
+      _desc.clear();
+      _location.clear();
+      _whenNow = true;
+      _whenDate = null;
+      _whenTime = const TimeOfDay(hour: 19, minute: 0);
+      _maxUnlimited = false;
+      _customMax.text = '2';
+      _visibility = PlanVisibility.public;
+      _photos.clear();
+      _voicePrefilled = false;
+      _voiceTranscript = null;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Form cleared'),
+      ),
+    );
   }
 
   @override
@@ -179,7 +224,7 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
 
     final desc = _desc.text.trim();
     final loc = _location.text.trim();
-    final meta = kVibeMeta[_vibe]!;
+    final meta = _selectedVibeStyle;
     final title =
         desc.isNotEmpty ? desc : '${meta.label} hangout';
 
@@ -197,14 +242,16 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
       ],
       location: loc.isNotEmpty ? loc : 'TBD',
       threshold: _postThreshold,
+      transcript: _voicePrefilled ? _voiceTranscript : null,
       visibility: _visibility,
     );
+    final source = _voicePrefilled ? PlanSource.voice : PlanSource.manual;
     SquadPlan? plan;
     try {
       plan = await ApiLoading.runSilently(
         () => context.read<AppState>().addPlanFromDraft(
           draft,
-          PlanSource.manual,
+          source,
           localPhotos: List<XFile>.from(_photos),
         ),
       );
@@ -236,6 +283,9 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
       _whenNow = true;
       _whenDate = null;
       _photos.clear();
+      _customVibeEmoji = null;
+      _voicePrefilled = false;
+      _voiceTranscript = null;
     });
 
     final planId = plan.id;
@@ -262,12 +312,23 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
   @override
   Widget build(BuildContext context) {
     final vibes = [
+      SquadVibe.all,
       SquadVibe.hoops,
       SquadVibe.swim,
       SquadVibe.cafe,
       SquadVibe.study,
       SquadVibe.gaming,
+      SquadVibe.outdoors,
+      SquadVibe.movie,
+      SquadVibe.party,
     ];
+    final catalogEmojis = vibes
+        .map((v) => (kVibeMeta[v] ?? _fallbackVibeStyle).emoji)
+        .toSet();
+    final aiGridEmojis = _aiExtraVibeEmojis
+        .where((e) => !catalogEmojis.contains(e))
+        .toList();
+    final vibeGridCount = vibes.length + aiGridEmojis.length;
 
     return Stack(
       fit: StackFit.expand,
@@ -292,21 +353,41 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
             children: [
               _SectionCard(
                 title: 'Pick a vibe',
-                child: GridView.count(
-                  crossAxisCount: 3,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  mainAxisSpacing: 8,
-                  crossAxisSpacing: 8,
-                  childAspectRatio: 1.15,
-                  children: [
-                    for (final v in vibes)
-                      _VibePickTile(
-                        meta: kVibeMeta[v]!,
-                        selected: _vibe == v,
-                        onTap: () => setState(() => _vibe = v),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final maxTileWidth =
+                        constraints.maxWidth >= 420 ? 160.0 : 140.0;
+                    return GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                        maxCrossAxisExtent: maxTileWidth,
+                        mainAxisSpacing: 8,
+                        crossAxisSpacing: 8,
+                        childAspectRatio: 1.15,
                       ),
-                  ],
+                      itemCount: vibeGridCount,
+                      itemBuilder: (context, i) {
+                        if (i < vibes.length) {
+                          final v = vibes[i];
+                          return _VibePickTile(
+                            meta: kVibeMeta[v] ?? _fallbackVibeStyle,
+                            selected: _customVibeEmoji == null && _vibe == v,
+                            onTap: () => setState(() {
+                              _vibe = v;
+                              _customVibeEmoji = null;
+                            }),
+                          );
+                        }
+                        final emoji = aiGridEmojis[i - vibes.length];
+                        return _VibePickTile(
+                          meta: _styleForCustomEmoji(emoji),
+                          selected: _customVibeEmoji == emoji,
+                          onTap: () => setState(() => _customVibeEmoji = emoji),
+                        );
+                      },
+                    );
+                  },
                 ),
               ),
               const SizedBox(height: 12),
@@ -752,6 +833,37 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
                   ),
                 ),
               ),
+              const SizedBox(height: 10),
+              Material(
+                color: SquadColors.inputFill,
+                borderRadius: BorderRadius.circular(16),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(16),
+                  onTap: _posting ? null : () => _clearForm(context),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.refresh_rounded,
+                          size: 18,
+                          color: SquadColors.muted,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Clear',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: SquadColors.muted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -785,6 +897,47 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
     if (planDay == today) return 'Today';
     if (planDay == today.add(const Duration(days: 1))) return 'Tomorrow';
     return DateFormat('EEE, MMM d').format(d);
+  }
+
+  static const VibeStyle _fallbackVibeStyle = VibeStyle(
+    label: 'Vibe',
+    emoji: '✨',
+    softBg: SquadColors.mutedBg,
+    softFg: SquadColors.text,
+  );
+
+  VibeStyle get _selectedVibeStyle {
+    if (_customVibeEmoji != null) return _styleForCustomEmoji(_customVibeEmoji!);
+    return kVibeMeta[_vibe] ?? _fallbackVibeStyle;
+  }
+
+  String? _vibeLabelFromVoice(String? vibeName, String emoji) {
+    var label = (vibeName ?? '').trim();
+    if (label.contains(emoji)) {
+      label = label.replaceAll(emoji, '').trim();
+    }
+    if (label.isEmpty) return null;
+    return label.length > 16 ? '${label.substring(0, 15)}…' : label;
+  }
+
+  VibeStyle _styleForCustomEmoji(String emoji) {
+    final aiLabel = _aiVibeLabels[emoji];
+    if (aiLabel != null && aiLabel.isNotEmpty) {
+      return VibeStyle(
+        label: aiLabel,
+        emoji: emoji,
+        softBg: SquadColors.mutedBg,
+        softFg: SquadColors.text,
+      );
+    }
+    final mapped = vibeStyleForEmoji(emoji);
+    if (mapped.label.isNotEmpty) return mapped;
+    return VibeStyle(
+      label: 'Custom',
+      emoji: emoji,
+      softBg: SquadColors.mutedBg,
+      softFg: SquadColors.text,
+    );
   }
 }
 

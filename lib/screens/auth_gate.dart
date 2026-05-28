@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../config/app_config.dart';
 import '../services/auth_token_store.dart';
+import '../services/session_expired_handler.dart';
 import '../state/app_state.dart';
 import 'home_shell.dart';
 import 'login_screen.dart';
@@ -22,6 +23,22 @@ class _AuthGateState extends State<AuthGate> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _restore());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final app = context.read<AppState>();
+    final handler = SessionExpiredHandler.instance;
+    handler.onLogout = app.logout;
+    handler.hasActiveSession = () => app.isAuthenticated;
+  }
+
+  @override
+  void dispose() {
+    SessionExpiredHandler.instance.onLogout = null;
+    SessionExpiredHandler.instance.hasActiveSession = null;
+    super.dispose();
   }
 
   Future<void> _restore() async {

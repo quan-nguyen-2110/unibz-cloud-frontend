@@ -6,7 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../state/app_state.dart';
 import '../theme/squad_theme.dart';
-// Bottom nav migrated from squadUp-layout `PhoneShell.tsx` (22a7a55).
+// Bottom nav migrated from squadUp-layout `PhoneShell.tsx` (3d2435e).
 import 'create_tab_screen.dart';
 import 'feed_screen.dart';
 import 'my_plans_screen.dart';
@@ -140,6 +140,7 @@ class _HomeShellState extends State<HomeShell> {
               ],
             ),
             bottomNavigationBar: _SquadBottomNav(
+              currentUserId: app.currentUser?.id,
               index: _index,
               onSelect: (i) => setState(() => _index = i),
             ),
@@ -170,10 +171,12 @@ class _HomeShellState extends State<HomeShell> {
 
 class _SquadBottomNav extends StatelessWidget {
   const _SquadBottomNav({
+    required this.currentUserId,
     required this.index,
     required this.onSelect,
   });
 
+  final String? currentUserId;
   final int index;
   final ValueChanged<int> onSelect;
 
@@ -216,6 +219,20 @@ class _SquadBottomNav extends StatelessWidget {
                   label: 'Recaps',
                   selected: index == 3,
                   onTap: () => onSelect(3),
+                ),
+                _SideNavItem(
+                  icon: Icons.person_rounded,
+                  label: 'Profile',
+                  selected: false,
+                  onTap: () {
+                    final uid = currentUserId;
+                    if (uid == null || uid.isEmpty) return;
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => ProfileScreen(userId: uid),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
@@ -279,36 +296,59 @@ class _CenterCreateItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Transform.translate(
-      offset: const Offset(0, -10),
+      offset: const Offset(0, -14),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(999),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: selected
-                    ? SquadColors.primary
-                    : const Color(0xFFADA8BC),
-                boxShadow: selected ? SquadColors.primaryGlowShadow : null,
-              ),
-              child: const Icon(
-                Icons.add_rounded,
-                size: 28,
-                color: Colors.white,
-              ),
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  width: 66,
+                  height: 66,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: SquadColors.ctaGradient,
+                    boxShadow: [
+                      BoxShadow(
+                        color: SquadColors.primary.withValues(alpha: 0.28),
+                        blurRadius: 24,
+                        spreadRadius: 2,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: SquadColors.ctaGradient,
+                    border: Border.all(
+                      color: SquadColors.card,
+                      width: 4,
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.add_rounded,
+                    size: 30,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Text(
               'Create',
               style: TextStyle(
                 fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: selected ? SquadColors.primary : SquadColors.muted,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.2,
+                color: selected ? SquadColors.primary : SquadColors.text,
               ),
             ),
           ],

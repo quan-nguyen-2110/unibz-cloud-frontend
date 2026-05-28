@@ -11,6 +11,9 @@ enum SquadVibe {
   cafe,
   study,
   gaming,
+  outdoors,
+  movie,
+  party,
 }
 
 class VibeStyle {
@@ -64,6 +67,24 @@ final Map<SquadVibe, VibeStyle> kVibeMeta = {
     softBg: SquadColors.gamingSoft,
     softFg: SquadColors.gaming,
   ),
+  SquadVibe.outdoors: VibeStyle(
+    label: 'Outdoors',
+    emoji: '🌳',
+    softBg: const Color(0xFFE6F4EA),
+    softFg: const Color(0xFF2E7D32),
+  ),
+  SquadVibe.movie: VibeStyle(
+    label: 'Movie',
+    emoji: '🎬',
+    softBg: const Color(0xFFE8EAF6),
+    softFg: const Color(0xFF3949AB),
+  ),
+  SquadVibe.party: VibeStyle(
+    label: 'Party',
+    emoji: '🎉',
+    softBg: const Color(0xFFFFEBEE),
+    softFg: const Color(0xFFC62828),
+  ),
 };
 
 SquadVibe? squadVibeFromEmoji(String emoji) {
@@ -74,6 +95,9 @@ SquadVibe? squadVibeFromEmoji(String emoji) {
     '☕': SquadVibe.cafe,
     '📖': SquadVibe.study,
     '🎮': SquadVibe.gaming,
+    '🌳': SquadVibe.outdoors,
+    '🎬': SquadVibe.movie,
+    '🎉': SquadVibe.party,
   };
   return map[e];
 }

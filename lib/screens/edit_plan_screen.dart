@@ -179,6 +179,9 @@ class _EditPlanScreenState extends State<EditPlanScreen> {
       SquadVibe.cafe,
       SquadVibe.study,
       SquadVibe.gaming,
+      SquadVibe.outdoors,
+      SquadVibe.movie,
+      SquadVibe.party,
     ];
 
     return DecoratedBox(
@@ -213,13 +216,24 @@ class _EditPlanScreenState extends State<EditPlanScreen> {
                               runSpacing: 8,
                               children: [
                                 for (final v in vibes)
-                                  FilterChip(
-                                    label: Text(
-                                      '${kVibeMeta[v]!.emoji} ${kVibeMeta[v]!.label}',
-                                    ),
-                                    selected: _vibe == v,
-                                    onSelected: (_) =>
-                                        setState(() => _vibe = v),
+                                  Builder(
+                                    builder: (context) {
+                                      final meta = kVibeMeta[v] ??
+                                          const VibeStyle(
+                                            label: 'Vibe',
+                                            emoji: '✨',
+                                            softBg: SquadColors.mutedBg,
+                                            softFg: SquadColors.text,
+                                          );
+                                      return FilterChip(
+                                        label: Text(
+                                          '${meta.emoji} ${meta.label}',
+                                        ),
+                                        selected: _vibe == v,
+                                        onSelected: (_) =>
+                                            setState(() => _vibe = v),
+                                      );
+                                    },
                                   ),
                               ],
                             ),
