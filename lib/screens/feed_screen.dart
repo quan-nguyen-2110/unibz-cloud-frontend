@@ -223,6 +223,7 @@ class _FeedScreenState extends State<FeedScreen> {
               child: VibeChipRow(
                 selectedEmoji: _filterEmoji,
                 emojis: vibeEmojis,
+                labelFor: app.vibeLabelForEmoji,
                 onSelect: (emoji) => setState(() => _filterEmoji = emoji),
               ),
             ),

@@ -104,4 +104,16 @@ class ApiPlanRepository implements PlanRepository {
         .map((e) => e.toString())
         .toList();
   }
+
+  /// AI-generated short labels for [emojis] (Bedrock); cached on the server.
+  Future<Map<String, String>> fetchVibeLabels(List<String> emojis) async {
+    if (emojis.isEmpty) return {};
+    final data = await _client.postJson(
+      '/plans/vibe-labels',
+      body: {'emojis': emojis},
+      silent: true,
+    );
+    final raw = data['labels'] as Map<String, dynamic>? ?? {};
+    return raw.map((k, v) => MapEntry(k, v.toString()));
+  }
 }

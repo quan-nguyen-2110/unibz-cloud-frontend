@@ -95,6 +95,7 @@ class VibeChipRow extends StatelessWidget {
     super.key,
     required this.selectedEmoji,
     required this.emojis,
+    required this.labelFor,
     required this.onSelect,
   });
 
@@ -103,6 +104,9 @@ class VibeChipRow extends StatelessWidget {
 
   /// Distinct emojis from loaded plans (each has at least one plan).
   final List<String> emojis;
+
+  /// Display name beside emoji (catalog or AI).
+  final String Function(String emoji) labelFor;
   final ValueChanged<String?> onSelect;
 
   @override
@@ -125,9 +129,10 @@ class VibeChipRow extends StatelessWidget {
           final active = selectedEmoji == chip.emoji;
           final label = chip.emoji == null
               ? '${meta.emoji} ${meta.label}'
-              : meta.label.isEmpty
-                  ? meta.emoji
-                  : '${meta.emoji} ${meta.label}';
+              : () {
+                  final name = labelFor(chip.emoji!).trim();
+                  return name.isEmpty ? meta.emoji : '${meta.emoji} $name';
+                }();
           return GestureDetector(
             onTap: () => onSelect(chip.emoji),
             child: AnimatedContainer(

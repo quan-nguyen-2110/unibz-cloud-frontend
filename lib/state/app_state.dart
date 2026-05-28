@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../config/app_config.dart';
+import '../data/vibe_catalog.dart';
 import '../models/models.dart';
 import '../repositories/api_friend_repository.dart';
 import '../repositories/api_plan_repository.dart';
@@ -36,6 +37,8 @@ class AppState extends ChangeNotifier {
   final NotificationService _notificationService = NotificationService();
 
   String? apiProbeMessage;
+  /// AI labels for feed filter chips (`POST /plans/vibe-labels`).
+  final Map<String, String> vibeEmojiLabels = {};
   SquadUser? currentUser;
   List<SquadNotification> notifications = [];
   String? planCancelledToast;
@@ -606,6 +609,39 @@ class AppState extends ChangeNotifier {
       ..sort((a, b) => b.startAt.compareTo(a.startAt));
   }
 
+  /// Label for filter chips and plan badges (catalog, then AI cache).
+  String vibeLabelForEmoji(String emoji) {
+    final e = emoji.trim();
+    final catalog = squadVibeFromEmoji(e);
+    if (catalog != null) return kVibeMeta[catalog]!.label;
+    final ai = vibeEmojiLabels[e];
+    if (ai != null && ai.isNotEmpty) return ai;
+    return '';
+  }
+
+  Future<void> refreshVibeLabelsForCurrentFeed() async {
+    final emojis = vibeEmojisFromPlans(
+      mergeFeedPlansForFilter(
+        recent: feedRecentPlans(),
+        squad: feedSquadPlans(),
+      ),
+    );
+    final missing = emojis.where((e) {
+      if (squadVibeFromEmoji(e) != null) return false;
+      return !vibeEmojiLabels.containsKey(e);
+    }).toList();
+    if (missing.isEmpty) return;
+    try {
+      final labels = await ApiLoading.runSilently(
+        () => _planRepo.fetchVibeLabels(missing),
+      );
+      vibeEmojiLabels.addAll(labels);
+      notifyListeners();
+    } catch (_) {
+      // Chips still show emoji-only when AI unavailable.
+    }
+  }
+
   List<SquadPlan> feedRecentPlans() {
     final uid = currentUser?.id;
     if (uid == null) return [];
@@ -1142,6 +1178,7 @@ class AppState extends ChangeNotifier {
       }
       apiProbeMessage = null;
       await users.prefetch(ids);
+      unawaited(refreshVibeLabelsForCurrentFeed());
     } catch (e) {
       apiProbeMessage = 'Feed sync failed: $e';
     } finally {
@@ -1174,6 +1211,7 @@ class AppState extends ChangeNotifier {
         ids.addAll(p.tapInUserIds);
       }
       await users.prefetch(ids);
+      unawaited(refreshVibeLabelsForCurrentFeed());
       apiProbeMessage = null;
     } catch (e) {
       apiProbeMessage = 'Feed load more failed: $e';
