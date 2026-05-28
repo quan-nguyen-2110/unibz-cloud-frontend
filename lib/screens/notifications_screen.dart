@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/models.dart';
+import '../services/app_datetime.dart';
 import '../state/app_state.dart';
 import '../theme/squad_theme.dart';
 import '../widgets/notification_visual.dart';
@@ -349,20 +350,11 @@ class _TimeAgoState extends State<_TimeAgo> {
       );
     }
     return Text(
-      _formatTimeAgo(widget.createdAt),
+      AppDateTime.formatTimeAgo(widget.createdAt),
       style: TextStyle(
         fontSize: 11,
         color: SquadColors.muted,
       ),
     );
   }
-}
-
-String _formatTimeAgo(DateTime createdAt) {
-  final diff = DateTime.now().difference(createdAt);
-  final m = diff.inMinutes;
-  if (m < 1) return 'just now';
-  if (m < 60) return '${m}m ago';
-  if (m < 60 * 24) return '${m ~/ 60}h ago';
-  return '${m ~/ 60 ~/ 24}d ago';
 }

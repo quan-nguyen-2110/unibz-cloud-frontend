@@ -1,10 +1,10 @@
 // Migrated from squadUp-layout/src/routes/recaps.tsx (layout 22a7a55).
 
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../data/vibe_catalog.dart';
+import '../services/app_datetime.dart';
 import '../models/models.dart';
 import '../state/app_state.dart';
 import '../theme/squad_theme.dart';
@@ -26,20 +26,6 @@ class _RecapsScreenState extends State<RecapsScreen> {
       if (!mounted) return;
       context.read<AppState>().refreshRecapsFromApi();
     });
-  }
-
-  static String _formatPlanTime(DateTime t) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final planDay = DateTime(t.year, t.month, t.day);
-    final clock = DateFormat('h:mm a');
-    if (planDay == today) {
-      return 'Today, ${clock.format(t)}';
-    }
-    if (planDay == today.add(const Duration(days: 1))) {
-      return 'Tomorrow, ${clock.format(t)}';
-    }
-    return '${DateFormat.MMMd().format(t)}, ${clock.format(t)}';
   }
 
   @override
@@ -92,7 +78,7 @@ class _RecapsScreenState extends State<RecapsScreen> {
                         child: _RecapCard(
                           plan: plan,
                           app: app,
-                          formatTime: _formatPlanTime,
+                          formatTime: AppDateTime.formatPlanTime,
                         ),
                       );
                     },

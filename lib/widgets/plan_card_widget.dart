@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:intl/intl.dart';
-
 import '../data/vibe_catalog.dart';
+import '../services/app_datetime.dart';
 import '../models/models.dart';
 import '../theme/squad_theme.dart';
 import '../widgets/leave_plan_confirm_dialog.dart';
@@ -29,20 +28,6 @@ class PlanCardWidget extends StatelessWidget {
   final VoidCallback onLocked;
   final void Function(String userId)? onLongPressCreator;
   final VoidCallback? onOpenDetail;
-
-  static String _formatPlanTime(DateTime t) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final planDay = DateTime(t.year, t.month, t.day);
-    final clock = DateFormat('h:mm a');
-    if (planDay == today) {
-      return 'Today, ${clock.format(t)}';
-    }
-    if (planDay == today.add(const Duration(days: 1))) {
-      return 'Tomorrow, ${clock.format(t)}';
-    }
-    return '${DateFormat.MMMd().format(t)}, ${clock.format(t)}';
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -135,7 +120,7 @@ class PlanCardWidget extends StatelessWidget {
                                           ),
                                           const SizedBox(height: 4),
                                           Text(
-                                            _formatPlanTime(plan.startAt),
+                                            AppDateTime.formatPlanTime(plan.startAt),
                                             style: TextStyle(
                                               fontSize: 12,
                                               color: SquadColors.muted,

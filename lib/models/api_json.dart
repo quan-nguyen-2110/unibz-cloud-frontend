@@ -1,3 +1,4 @@
+import '../services/app_datetime.dart';
 import 'models.dart';
 
 PlanStatus _statusFromJson(String? raw) {
@@ -67,7 +68,7 @@ PlanPhoto planPhotoFromJson(Map<String, dynamic> json) {
     id: json['id'] as String,
     url: json['url'] as String,
     uploaderId: json['uploaderId'] as String,
-    createdAt: created != null ? DateTime.parse(created) : null,
+    createdAt: created != null ? AppDateTime.parseApi(created) : null,
   );
 }
 
@@ -96,7 +97,7 @@ SquadPlan squadPlanFromJson(Map<String, dynamic> json) {
     activities: activities,
     gameName: json['gameName'] as String?,
     location: json['location'] as String?,
-    startAt: DateTime.parse(json['startAt'] as String),
+    startAt: AppDateTime.parseApi(json['startAt'] as String),
     threshold: json['threshold'] as int? ?? 2,
     status: _statusFromJson(json['status'] as String?),
     source: _sourceFromJson(json['source'] as String?),
@@ -105,7 +106,7 @@ SquadPlan squadPlanFromJson(Map<String, dynamic> json) {
         .map((e) => e.toString())
         .toList(),
     createdAt: json['createdAt'] != null
-        ? DateTime.parse(json['createdAt'] as String)
+        ? AppDateTime.parseApi(json['createdAt'] as String)
         : DateTime.now(),
     visibility: _visibilityFromJson(json['visibility'] as String?),
     photos: photos,
@@ -148,7 +149,7 @@ SquadNotification squadNotificationFromJson(Map<String, dynamic> json) {
     body: json['body'] as String? ?? '',
     read: json['read'] as bool? ?? false,
     createdAt: json['createdAt'] != null
-        ? DateTime.parse(json['createdAt'] as String)
+        ? AppDateTime.parseApi(json['createdAt'] as String)
         : DateTime.now(),
     hostId: meta?['hostId'] as String?,
     hostName: meta?['hostName'] as String?,

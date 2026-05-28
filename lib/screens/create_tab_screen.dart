@@ -5,10 +5,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../data/vibe_catalog.dart';
+import '../services/app_datetime.dart';
 import '../models/models.dart';
 import '../services/api_loading.dart';
 import '../state/app_state.dart';
@@ -54,22 +54,13 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
   String get _whenLabel {
     if (_whenNow) return 'Now';
     if (_whenDate == null) return 'Pick date & time';
-    final d = DateTime(
+    return AppDateTime.formatSchedule(DateTime(
       _whenDate!.year,
       _whenDate!.month,
       _whenDate!.day,
       _whenTime.hour,
       _whenTime.minute,
-    );
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final planDay = DateTime(d.year, d.month, d.day);
-    final dayPart = planDay == today
-        ? 'Today'
-        : planDay == today.add(const Duration(days: 1))
-            ? 'Tomorrow'
-            : DateFormat('EEE, MMM d').format(d);
-    return '$dayPart · ${DateFormat('h:mm a').format(d)}';
+    ));
   }
 
   Future<void> _openVoice(BuildContext context) async {
@@ -80,7 +71,8 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
 
   void _applyVoice(VoiceDictateSample s) {
     final now = DateTime.now();
-    final isNowish = s.startAt.isBefore(now.add(const Duration(minutes: 10)));
+    final localStart = AppDateTime.toLocal(s.startAt);
+    final isNowish = localStart.isBefore(now.add(const Duration(minutes: 10)));
     final mapped = squadVibeFromEmoji(s.vibeEmoji);
     setState(() {
       final desc = s.description.trim().isNotEmpty ? s.description.trim() : s.text.trim();
@@ -103,9 +95,9 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
       if (isNowish) {
         _whenNow = true;
       } else {
-        _whenDate = DateTime(s.startAt.year, s.startAt.month, s.startAt.day);
+        _whenDate = DateTime(localStart.year, localStart.month, localStart.day);
         _whenNow = false;
-        _whenTime = TimeOfDay(hour: s.startAt.hour, minute: s.startAt.minute);
+        _whenTime = TimeOfDay(hour: localStart.hour, minute: localStart.minute);
       }
       _location.text = s.location;
       _maxUnlimited = s.people < 0;
@@ -120,7 +112,7 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
         : (kVibeMeta[_vibe] ?? _fallbackVibeStyle);
     final whenLabel = isNowish
         ? 'Now'
-        : '${DateFormat('EEE, MMM d').format(s.startAt)} · ${DateFormat('h:mm a').format(s.startAt)}';
+        : AppDateTime.formatSchedule(localStart);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -474,7 +466,7 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
                               icon: Icons.calendar_today_rounded,
                               label: _whenDate == null
                                   ? 'Pick date'
-                                  : _formatDateLabel(_whenDate!),
+                                  : AppDateTime.formatDateLabel(_whenDate!),
                               onTap: _pickDate,
                             ),
                           ),
@@ -864,6 +856,7 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
                   ),
                 ),
               ),
+              const SizedBox(height: 32),
             ],
           ),
         ),
@@ -888,15 +881,6 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
           ),
       ],
     );
-  }
-
-  String _formatDateLabel(DateTime d) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final planDay = DateTime(d.year, d.month, d.day);
-    if (planDay == today) return 'Today';
-    if (planDay == today.add(const Duration(days: 1))) return 'Tomorrow';
-    return DateFormat('EEE, MMM d').format(d);
   }
 
   static const VibeStyle _fallbackVibeStyle = VibeStyle(

@@ -1,4 +1,6 @@
 import '../services/api_client.dart';
+import '../services/app_datetime.dart';
+import '../services/device_timezone.dart';
 
 class VoicePresignResult {
   const VoicePresignResult({
@@ -66,7 +68,8 @@ class GeneratedVoicePlan {
         ? loc
         : (loc is Map<String, dynamic> ? loc['name'] as String? : null);
     final rawStartAt = json['startAt'] as String?;
-    final parsedStartAt = rawStartAt == null ? null : DateTime.tryParse(rawStartAt);
+    final parsed = rawStartAt == null ? null : DateTime.tryParse(rawStartAt);
+    final parsedStartAt = parsed == null ? null : AppDateTime.toLocal(parsed);
     final fallbackStartAt = DateTime.now().add(const Duration(hours: 2));
     return GeneratedVoicePlan(
       vibeEmoji: json['vibeEmoji'] as String? ?? json['emoji'] as String? ?? '✨',
@@ -122,13 +125,16 @@ class ApiVoiceRepository {
 
   Future<GeneratedVoicePlan> generatePlan(String transcript) async {
     final now = DateTime.now();
+    final timezone = await DeviceTimezone.ianaId();
+    final body = <String, dynamic>{
+      'transcript': transcript,
+      'referenceNow': now.toIso8601String(),
+      'utcOffsetMinutes': now.timeZoneOffset.inMinutes,
+    };
+    if (timezone != null) body['timezone'] = timezone;
     final data = await _client.postJson(
       '/voice/generate-plan',
-      body: {
-        'transcript': transcript,
-        'referenceNow': now.toIso8601String(),
-        'utcOffsetMinutes': now.timeZoneOffset.inMinutes,
-      },
+      body: body,
       silent: true,
     );
     final plan = data['plan'] as Map<String, dynamic>? ?? {};

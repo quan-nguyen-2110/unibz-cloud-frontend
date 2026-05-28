@@ -4,10 +4,10 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../data/vibe_catalog.dart';
+import '../services/app_datetime.dart';
 import '../models/models.dart';
 import '../services/profile_user_resolver.dart' show mergeProfileWithCurrentUser, profileLocationLine, resolveProfileUser;
 import '../state/app_state.dart';
@@ -38,20 +38,6 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
       if (!mounted) return;
       context.read<AppState>().refreshPlanDetail(widget.planId);
     });
-  }
-
-  static String _formatPlanTime(DateTime t) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final planDay = DateTime(t.year, t.month, t.day);
-    final clock = DateFormat('h:mm a');
-    if (planDay == today) {
-      return 'Today, ${clock.format(t)}';
-    }
-    if (planDay == today.add(const Duration(days: 1))) {
-      return 'Tomorrow, ${clock.format(t)}';
-    }
-    return '${DateFormat.MMMd().format(t)}, ${clock.format(t)}';
   }
 
   void _confirmLeave(BuildContext context, AppState app, SquadPlan plan) {
@@ -337,7 +323,7 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
                                         _DetailRow(
                                           icon: Icons.schedule_rounded,
                                           label: 'When',
-                                          value: _formatPlanTime(plan.startAt),
+                                          value: AppDateTime.formatPlanTime(plan.startAt),
                                         ),
                                         const SizedBox(height: 12),
                                         _DetailRow(
@@ -958,20 +944,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  static String _formatPlanTime(DateTime t) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final planDay = DateTime(t.year, t.month, t.day);
-    final clock = DateFormat('h:mm a');
-    if (planDay == today) {
-      return 'Today, ${clock.format(t)}';
-    }
-    if (planDay == today.add(const Duration(days: 1))) {
-      return 'Tomorrow, ${clock.format(t)}';
-    }
-    return '${DateFormat.MMMd().format(t)}, ${clock.format(t)}';
-  }
-
   Widget _profileShell({required Widget child}) {
     return DecoratedBox(
       decoration: const BoxDecoration(gradient: SquadColors.backgroundGradient),
@@ -1226,7 +1198,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     isMe: isMe,
                                     loading: _recapsLoading,
                                     plans: _sharedRecaps,
-                                    formatTime: _ProfileScreenState._formatPlanTime,
+                                    formatTime: AppDateTime.formatPlanTime,
                                     onManage: isMe
                                         ? () {
                                             Navigator.of(context).popUntil(

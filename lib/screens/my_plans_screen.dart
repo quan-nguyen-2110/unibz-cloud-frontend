@@ -1,10 +1,10 @@
 // Migrated from squadUp-layout/src/routes/my-plans.tsx (ceb66d0).
 
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../data/vibe_catalog.dart';
+import '../services/app_datetime.dart';
 import '../models/models.dart';
 import '../state/app_state.dart';
 import '../theme/squad_theme.dart';
@@ -29,20 +29,6 @@ class MyPlansScreen extends StatefulWidget {
 
 class _MyPlansScreenState extends State<MyPlansScreen> {
   _MyPlansTab _tab = _MyPlansTab.attended;
-
-  static String _formatPlanTime(DateTime t) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final planDay = DateTime(t.year, t.month, t.day);
-    final clock = DateFormat('h:mm a');
-    if (planDay == today) {
-      return 'Today, ${clock.format(t)}';
-    }
-    if (planDay == today.add(const Duration(days: 1))) {
-      return 'Tomorrow, ${clock.format(t)}';
-    }
-    return '${DateFormat.MMMd().format(t)}, ${clock.format(t)}';
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -115,7 +101,7 @@ class _MyPlansScreenState extends State<MyPlansScreen> {
                 child: _GuestPlanCard(
                   plan: p,
                   nameFor: app.displayNameFor,
-                  timeLabel: _formatPlanTime(p.startAt),
+                  timeLabel: AppDateTime.formatPlanTime(p.startAt),
                   past: false,
                 ),
               ),
@@ -140,7 +126,7 @@ class _MyPlansScreenState extends State<MyPlansScreen> {
                 child: _HostPlanCard(
                   plan: p,
                   app: app,
-                  timeLabel: _formatPlanTime(p.startAt),
+                  timeLabel: AppDateTime.formatPlanTime(p.startAt),
                   nameFor: app.displayNameFor,
                 ),
               ),

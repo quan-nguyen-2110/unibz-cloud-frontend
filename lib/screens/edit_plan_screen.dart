@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../data/vibe_catalog.dart';
 import '../models/models.dart';
 import '../services/api_loading.dart';
+import '../services/app_datetime.dart';
 import '../state/app_state.dart';
 import '../theme/squad_theme.dart';
 import '../widgets/squad_layout_widgets.dart';
@@ -52,7 +53,7 @@ class _EditPlanScreenState extends State<EditPlanScreen> {
               ? plan.resolvedActivities.first.location ?? ''
               : ''),
     );
-    final start = plan.startAt.toLocal();
+    final start = AppDateTime.toLocal(plan.startAt);
     _whenDate = DateTime(start.year, start.month, start.day);
     _whenTime = TimeOfDay(hour: start.hour, minute: start.minute);
     _maxUnlimited = plan.threshold >= _unlimitedThreshold;
@@ -87,18 +88,7 @@ class _EditPlanScreenState extends State<EditPlanScreen> {
         _whenTime.minute,
       );
 
-  String get _whenLabel {
-    final d = _startAt;
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final planDay = DateTime(d.year, d.month, d.day);
-    final dayPart = planDay == today
-        ? 'Today'
-        : planDay == today.add(const Duration(days: 1))
-            ? 'Tomorrow'
-            : DateFormat('EEE, MMM d').format(d);
-    return '$dayPart · ${DateFormat('h:mm a').format(d)}';
-  }
+  String get _whenLabel => AppDateTime.formatSchedule(_startAt);
 
   Future<void> _pickDate() async {
     final now = DateTime.now();
@@ -277,8 +267,10 @@ class _EditPlanScreenState extends State<EditPlanScreen> {
                                 ),
                                 ListTile(
                                   contentPadding: EdgeInsets.zero,
-                                  title: Text(DateFormat('h:mm a')
-                                      .format(_startAt)),
+                                  title: Text(
+                                    DateFormat('h:mm a')
+                                        .format(AppDateTime.toLocal(_startAt)),
+                                  ),
                                   trailing:
                                       const Icon(Icons.schedule_rounded),
                                   onTap: _pickTime,
