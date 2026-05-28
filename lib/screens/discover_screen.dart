@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../data/vibe_catalog.dart';
+import '../state/app_state.dart';
 import '../theme/squad_theme.dart';
 import '../widgets/squad_layout_widgets.dart';
 
@@ -12,11 +14,23 @@ class DiscoverScreen extends StatefulWidget {
 }
 
 class _DiscoverScreenState extends State<DiscoverScreen> {
-  SquadVibe _filter = SquadVibe.all;
+  String? _filterEmoji;
 
   @override
   Widget build(BuildContext context) {
-    return CustomScrollView(
+    return Consumer<AppState>(
+      builder: (context, app, _) {
+        final feedPlans = mergeFeedPlansForFilter(
+          recent: app.feedRecentPlans(),
+          squad: app.feedSquadPlans(),
+        );
+        final vibeEmojis = vibeEmojisFromPlans(feedPlans);
+        if (_filterEmoji != null && !vibeEmojis.contains(_filterEmoji)) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) setState(() => _filterEmoji = null);
+          });
+        }
+        return CustomScrollView(
       slivers: [
         SliverToBoxAdapter(
           child: ScreenHeader(
@@ -47,8 +61,9 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
             child: VibeChipRow(
-              selected: _filter,
-              onSelect: (v) => setState(() => _filter = v),
+              selectedEmoji: _filterEmoji,
+              emojis: vibeEmojis,
+              onSelect: (emoji) => setState(() => _filterEmoji = emoji),
             ),
           ),
         ),
@@ -76,6 +91,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           ),
         ),
       ],
+    );
+      },
     );
   }
 }

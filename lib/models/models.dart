@@ -94,6 +94,35 @@ class PlanPhoto {
   final DateTime? createdAt;
 }
 
+/// Active multi-photo upload for a plan (presign → S3 → confirm).
+@immutable
+class PlanPhotoUploadProgress {
+  const PlanPhotoUploadProgress({
+    required this.planId,
+    required this.completed,
+    required this.total,
+    this.syncing = false,
+  });
+
+  final String planId;
+  final int completed;
+  final int total;
+  final bool syncing;
+
+  bool get isActive => total > 0;
+
+  String get title {
+    if (syncing) return 'Finishing up…';
+    if (total <= 1) return 'Uploading photo…';
+    return 'Uploading photo $completed of $total…';
+  }
+
+  String get subtitle {
+    if (syncing) return 'Updating your gallery';
+    return 'Sending to secure storage';
+  }
+}
+
 @immutable
 class PlanDraft {
   const PlanDraft({

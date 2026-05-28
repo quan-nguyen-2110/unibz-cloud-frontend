@@ -1559,6 +1559,7 @@ class _ProfileSharedRecapsSection extends StatelessWidget {
                   ),
                 )
               : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     for (var i = 0; i < plans.length; i++) ...[
                       if (i > 0) const SizedBox(height: 12),
@@ -1594,18 +1595,20 @@ class _ProfileSharedRecapItem extends StatelessWidget {
       ...plan.tapInUserIds,
     }.length;
 
-    return Material(
-      color: SquadColors.mutedBg.withValues(alpha: 0.6),
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
+    return SizedBox(
+      width: double.infinity,
+      child: Material(
+        color: SquadColors.mutedBg.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Wrap(
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: [
@@ -1714,6 +1717,7 @@ class _ProfileSharedRecapItem extends StatelessWidget {
             ],
           ),
         ),
+      ),
       ),
     );
   }

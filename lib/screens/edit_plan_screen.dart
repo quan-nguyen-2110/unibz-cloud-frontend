@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../data/vibe_catalog.dart';
 import '../models/models.dart';
+import '../services/api_loading.dart';
 import '../state/app_state.dart';
 import '../theme/squad_theme.dart';
 import '../widgets/squad_layout_widgets.dart';
@@ -151,9 +152,11 @@ class _EditPlanScreenState extends State<EditPlanScreen> {
     );
 
     try {
-      final updated = await context
-          .read<AppState>()
-          .updatePlanFromDraft(widget.plan.id, draft);
+      final updated = await ApiLoading.runSilently(
+        () => context
+            .read<AppState>()
+            .updatePlanFromDraft(widget.plan.id, draft),
+      );
       if (!mounted) return;
       if (updated == null) {
         ScaffoldMessenger.of(context).showSnackBar(

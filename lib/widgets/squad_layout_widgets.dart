@@ -93,36 +93,43 @@ class ScreenHeader extends StatelessWidget {
 class VibeChipRow extends StatelessWidget {
   const VibeChipRow({
     super.key,
-    required this.selected,
+    required this.selectedEmoji,
+    required this.emojis,
     required this.onSelect,
   });
 
-  final SquadVibe selected;
-  final ValueChanged<SquadVibe> onSelect;
+  /// `null` = All vibes.
+  final String? selectedEmoji;
+
+  /// Distinct emojis from loaded plans (each has at least one plan).
+  final List<String> emojis;
+  final ValueChanged<String?> onSelect;
 
   @override
   Widget build(BuildContext context) {
-    const order = [
-      SquadVibe.all,
-      SquadVibe.hoops,
-      SquadVibe.swim,
-      SquadVibe.cafe,
-      SquadVibe.study,
-      SquadVibe.gaming,
+    final chips = <({String? emoji, VibeStyle style})>[
+      (emoji: null, style: kVibeMeta[SquadVibe.all]!),
+      for (final emoji in emojis) (emoji: emoji, style: vibeStyleForEmoji(emoji)),
     ];
+
     return SizedBox(
       height: 44,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 24),
-        itemCount: order.length,
+        itemCount: chips.length,
         separatorBuilder: (context, index) => const SizedBox(width: 8),
         itemBuilder: (context, i) {
-          final v = order[i];
-          final meta = kVibeMeta[v]!;
-          final active = selected == v;
+          final chip = chips[i];
+          final meta = chip.style;
+          final active = selectedEmoji == chip.emoji;
+          final label = chip.emoji == null
+              ? '${meta.emoji} ${meta.label}'
+              : meta.label.isEmpty
+                  ? meta.emoji
+                  : '${meta.emoji} ${meta.label}';
           return GestureDetector(
-            onTap: () => onSelect(v),
+            onTap: () => onSelect(chip.emoji),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 180),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -132,7 +139,7 @@ class VibeChipRow extends StatelessWidget {
                 boxShadow: active ? SquadColors.cardShadow : null,
               ),
               child: Text(
-                '${meta.emoji} ${meta.label}',
+                label,
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w700,

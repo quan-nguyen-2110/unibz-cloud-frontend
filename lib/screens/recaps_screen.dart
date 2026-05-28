@@ -55,7 +55,7 @@ class _RecapsScreenState extends State<RecapsScreen> {
             const SliverToBoxAdapter(
               child: ScreenHeader(
                 title: 'Recaps',
-                subtitle: "Plans you've attended or hosted",
+                subtitle: 'Plans that have already started',
               ),
             ),
             if (app.recapPlansError != null)
@@ -144,7 +144,7 @@ class _RecapsEmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            "Once a plan you joined wraps, it'll show up here.",
+            "Once a plan you've joined or hosted starts, it'll show up here.",
             textAlign: TextAlign.center,
             style: TextStyle(color: SquadColors.muted, height: 1.4),
           ),

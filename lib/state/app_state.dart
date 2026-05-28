@@ -9,6 +9,7 @@ import '../repositories/api_friend_repository.dart';
 import '../repositories/api_plan_repository.dart';
 import '../repositories/api_user_repository.dart';
 import '../services/api_client.dart';
+import '../services/api_loading.dart';
 import '../services/auth_service.dart';
 import '../services/auth_token_store.dart';
 import '../services/jwt_util.dart';
@@ -42,7 +43,13 @@ class AppState extends ChangeNotifier {
   String? removedFromPlanToast;
   String? removedFromPlanToastPlanId;
 
+  /// Non-null while plan photos are uploading (create flow or plan detail).
+  PlanPhotoUploadProgress? planPhotoUploadProgress;
+
   int? shellTabRequest;
+
+  bool isUploadingPlanPhotos(String planId) =>
+      planPhotoUploadProgress?.planId == planId;
 
   void openShellTab(int index) {
     shellTabRequest = index;
@@ -195,8 +202,15 @@ class AppState extends ChangeNotifier {
     friendIds.clear();
     incomingRequestIds.clear();
     outgoingRequestIds.clear();
+    suggestedFriends = [];
+    _suggestedSeed = 0;
+    suggestedFriendsLoading = false;
     plans.clear();
     recentPlans.clear();
+    feedLoading = false;
+    feedLoadingMore = false;
+    feedHasMore = true;
+    _feedNextOffset = 0;
     recapPlans.clear();
     recapPlansError = null;
     cancelledPlanIds.clear();
@@ -205,6 +219,7 @@ class AppState extends ChangeNotifier {
     planCancelledToastPlanId = null;
     removedFromPlanToast = null;
     removedFromPlanToastPlanId = null;
+    planPhotoUploadProgress = null;
     notifyListeners();
   }
 
@@ -235,7 +250,9 @@ class AppState extends ChangeNotifier {
 
   void _onFeedHubReconnected() {
     if (!isAuthenticated) return;
-    unawaited(refreshSquadFromApi());
+    unawaited(
+      ApiLoading.runSilently(refreshSquadFromApi),
+    );
   }
 
   void _onFeedPlanHub(FeedPlanHubEvent event) {
@@ -284,23 +301,25 @@ class AppState extends ChangeNotifier {
     List<String> planIds,
     List<String> celebrateLockPlanIds,
   ) async {
-    var celebrate = false;
-    for (final id in planIds) {
-      try {
-        final before = _findPlan(id)?.status;
-        await _syncPlanFromApi(id);
-        final after = _findPlan(id)?.status;
-        if (before == PlanStatus.active &&
-            after == PlanStatus.locked &&
-            celebrateLockPlanIds.contains(id)) {
-          celebrate = true;
+    await ApiLoading.runSilently(() async {
+      var celebrate = false;
+      for (final id in planIds) {
+        try {
+          final before = _findPlan(id)?.status;
+          await _syncPlanFromApi(id);
+          final after = _findPlan(id)?.status;
+          if (before == PlanStatus.active &&
+              after == PlanStatus.locked &&
+              celebrateLockPlanIds.contains(id)) {
+            celebrate = true;
+          }
+        } catch (_) {
+          /* keep other syncs */
         }
-      } catch (_) {
-        /* keep other syncs */
       }
-    }
-    notifyListeners();
-    if (celebrate) onSquadLockedCelebration?.call();
+      notifyListeners();
+      if (celebrate) onSquadLockedCelebration?.call();
+    });
   }
 
   bool _shouldShowInFeed(SquadPlan plan) {
@@ -320,17 +339,18 @@ class AppState extends ChangeNotifier {
   void _upsertPlanFromHub(SquadPlan plan) {
     if (cancelledPlanIds.contains(plan.id)) return;
 
-    final existing = _findPlan(plan.id);
+    final existing = tryPlanById(plan.id);
+    final merged = _mergePlanPreservePhotos(plan, existing);
     if (existing != null) {
-      _replacePlan(plan);
-      unawaited(users.prefetch([plan.creatorId, ...plan.tapInUserIds]));
+      _replacePlan(merged);
+      unawaited(users.prefetch([merged.creatorId, ...merged.tapInUserIds]));
       return;
     }
 
-    if (!_shouldShowInFeed(plan)) return;
+    if (!_shouldShowInFeed(merged)) return;
 
-    plans.insert(0, plan);
-    unawaited(users.prefetch([plan.creatorId, ...plan.tapInUserIds]));
+    plans.insert(0, merged);
+    unawaited(users.prefetch([merged.creatorId, ...merged.tapInUserIds]));
   }
 
   void _onPlanCancelledHub(PlanCancelledHubEvent event) {
@@ -384,7 +404,7 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    unawaited(refreshNotifications());
+    unawaited(ApiLoading.runSilently(refreshNotifications));
   }
 
   void _applyFriendRequestNotification(InboxNotificationHubEvent event) {
@@ -393,7 +413,7 @@ class AppState extends ChangeNotifier {
       incomingRequestIds.add(requesterId);
       unawaited(users.prefetch([requesterId]));
     }
-    unawaited(refreshFriendsFromApi());
+    unawaited(ApiLoading.runSilently(refreshFriendsFromApi));
   }
 
   void clearRemovedFromPlanToast() {
@@ -496,17 +516,22 @@ class AppState extends ChangeNotifier {
   final Set<String> incomingRequestIds = {};
   final Set<String> outgoingRequestIds = {};
 
+  static const int feedPageSize = 10;
+
+  bool feedLoading = false;
+  bool feedLoadingMore = false;
+  bool feedHasMore = true;
+  int _feedNextOffset = 0;
+
   SquadPlan? tryPlanById(String id) {
-    for (final p in recentPlans) {
-      if (p.id == id) return p;
+    SquadPlan? best;
+    for (final p in [...recentPlans, ...recapPlans, ...plans]) {
+      if (p.id != id) continue;
+      if (best == null || p.photos.length > best.photos.length) {
+        best = p;
+      }
     }
-    for (final p in recapPlans) {
-      if (p.id == id) return p;
-    }
-    for (final p in plans) {
-      if (p.id == id) return p;
-    }
-    return null;
+    return best;
   }
 
   List<SquadPlan> plansInvolvingUser(String userId) {
@@ -533,13 +558,39 @@ class AppState extends ChangeNotifier {
     return others;
   }
 
-  List<SquadUser> suggestedFriends({int limit = 8}) => const [];
+  List<SquadUser> suggestedFriends = [];
+  bool suggestedFriendsLoading = false;
+  int _suggestedSeed = 0;
+
+  /// Loads up to [limit] users for the Suggested tab (does not send friend requests).
+  Future<void> loadSuggestedFriends({bool reload = false, int limit = 10}) async {
+    if (reload) _suggestedSeed += 1;
+    suggestedFriendsLoading = true;
+    notifyListeners();
+    try {
+      final payload = await _friendRepo.fetchSuggested(
+        limit: limit,
+        seed: _suggestedSeed,
+      );
+      users.seedProfiles(payload.profiles);
+      await users.prefetch(payload.ids);
+      suggestedFriends = listUsersForIds(payload.ids);
+      apiProbeMessage = null;
+    } catch (e) {
+      suggestedFriends = [];
+      apiProbeMessage = 'Suggested friends failed: $e';
+    } finally {
+      suggestedFriendsLoading = false;
+      notifyListeners();
+    }
+  }
 
   List<SquadPlan> friendFeed() {
     final uid = currentUser?.id;
     if (uid == null) return [];
     bool visible(SquadPlan p) {
       if (cancelledPlanIds.contains(p.id)) return false;
+      if (p.hasStarted) return false;
       if (p.status != PlanStatus.active && p.status != PlanStatus.locked) {
         return false;
       }
@@ -588,20 +639,22 @@ class AppState extends ChangeNotifier {
     return out;
   }
 
-  bool isPlanPast(SquadPlan plan) {
-    if (plan.status == PlanStatus.completed) return true;
-    return plan.startAt.isBefore(DateTime.now());
-  }
+  /// Plan start time has passed — belongs on Recaps, not My Plans.
+  bool isPlanStarted(SquadPlan plan) => plan.hasStarted;
+
+  /// Upcoming plan — belongs on My Plans, not Recaps.
+  bool isPlanNotStarted(SquadPlan plan) =>
+      !isPlanStarted(plan) && !isPlanCancelled(plan.id);
 
   bool isUserAttending(SquadPlan plan, String userId) =>
       plan.creatorId == userId || plan.userHasTappedIn(userId);
 
+  /// My Plans → Attended tab: tapped-in guest plans that have not started.
   List<SquadPlan> myPlansUpcoming(String userId) {
     return allPlansMerged()
         .where(
           (p) =>
-              !isPlanPast(p) &&
-              !isPlanCancelled(p.id) &&
+              isPlanNotStarted(p) &&
               isUserAttending(p, userId) &&
               p.creatorId != userId,
         )
@@ -609,21 +662,12 @@ class AppState extends ChangeNotifier {
       ..sort((a, b) => a.startAt.compareTo(b.startAt));
   }
 
-  List<SquadPlan> myPlansAttended(String userId) {
-    return allPlansMerged()
-        .where(
-          (p) =>
-              isPlanPast(p) &&
-              isUserAttending(p, userId) &&
-              p.creatorId != userId,
-        )
-        .toList()
-      ..sort((a, b) => b.startAt.compareTo(a.startAt));
-  }
-
+  /// My Plans → Hosting tab: your hosted plans that have not started.
   List<SquadPlan> myPlansHosting(String userId) {
     return allPlansMerged()
-        .where((p) => p.creatorId == userId)
+        .where(
+          (p) => p.creatorId == userId && isPlanNotStarted(p),
+        )
         .toList()
       ..sort((a, b) => a.startAt.compareTo(b.startAt));
   }
@@ -699,7 +743,7 @@ class AppState extends ChangeNotifier {
     try {
       final remote = await _planRepo.getPlan(planId);
       if (remote == null) return;
-      if (_findPlan(planId) != null) {
+      if (tryPlanById(planId) != null) {
         _replacePlan(remote);
       } else {
         plans.insert(0, remote);
@@ -760,13 +804,31 @@ class AppState extends ChangeNotifier {
       var plan = await _planRepo.createPlan(apiDraft, source);
       await _planRepo.tapIn(plan.id);
       if (localPhotos.isNotEmpty) {
-        await _planPhotos.uploadPlanPhotos(
-          plan.id,
-          localPhotos,
-          maxCount: PlanPhotoService.maxHostInitialPhotos,
+        final photoCount = localPhotos.length.clamp(
+          0,
+          PlanPhotoService.maxHostInitialPhotos,
         );
+        try {
+          await _uploadPlanPhotosWithProgress(
+            plan.id,
+            localPhotos,
+            maxCount: PlanPhotoService.maxHostInitialPhotos,
+          );
+          planPhotoUploadProgress = PlanPhotoUploadProgress(
+            planId: plan.id,
+            completed: photoCount,
+            total: photoCount,
+            syncing: true,
+          );
+          notifyListeners();
+          plan = await _planRepo.getPlan(plan.id) ?? plan;
+        } finally {
+          planPhotoUploadProgress = null;
+          notifyListeners();
+        }
+      } else {
+        plan = await _planRepo.getPlan(plan.id) ?? plan;
       }
-      plan = await _planRepo.getPlan(plan.id) ?? plan;
       recentPlans.insert(0, plan);
       final existing = plans.indexWhere((p) => p.id == plan.id);
       if (existing >= 0) {
@@ -836,36 +898,58 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  SquadPlan? _findPlan(String planId) {
-    for (final p in recentPlans) {
-      if (p.id == planId) return p;
+  SquadPlan? _findPlan(String planId) => tryPlanById(planId);
+
+  /// Keeps gallery URLs when a feed/hub payload omits `photos` (common on `planCreated`).
+  SquadPlan _mergePlanPreservePhotos(SquadPlan incoming, SquadPlan? existing) {
+    if (existing != null &&
+        incoming.photos.isEmpty &&
+        existing.photos.isNotEmpty) {
+      return SquadPlan(
+        id: incoming.id,
+        creatorId: incoming.creatorId,
+        vibeEmoji: incoming.vibeEmoji,
+        title: incoming.title,
+        startAt: incoming.startAt,
+        threshold: incoming.threshold,
+        status: incoming.status,
+        source: incoming.source,
+        description: incoming.description,
+        activities: incoming.activities,
+        gameName: incoming.gameName,
+        location: incoming.location,
+        transcript: incoming.transcript,
+        tapInUserIds: incoming.tapInUserIds,
+        createdAt: incoming.createdAt,
+        visibility: incoming.visibility,
+        photos: existing.photos,
+        sharedToProfile: incoming.sharedToProfile,
+        recapRole: incoming.recapRole,
+      );
     }
-    for (final p in plans) {
-      if (p.id == planId) return p;
-    }
-    return null;
+    return incoming;
   }
 
   void _replacePlan(SquadPlan updated) {
+    final merged = _mergePlanPreservePhotos(updated, tryPlanById(updated.id));
     for (var i = 0; i < recentPlans.length; i++) {
-      if (recentPlans[i].id == updated.id) {
-        recentPlans[i] = updated;
-        return;
-      }
+      if (recentPlans[i].id == merged.id) recentPlans[i] = merged;
     }
     for (var i = 0; i < plans.length; i++) {
-      if (plans[i].id == updated.id) {
-        plans[i] = updated;
-        return;
-      }
+      if (plans[i].id == merged.id) plans[i] = merged;
+    }
+    for (var i = 0; i < recapPlans.length; i++) {
+      if (recapPlans[i].id == merged.id) recapPlans[i] = merged;
     }
   }
 
   Future<void> _syncPlanFromApi(String planId) async {
-    final remote = await _planRepo.getPlan(planId);
-    if (remote == null) return;
-    _replacePlan(remote);
-    await users.prefetch([remote.creatorId, ...remote.tapInUserIds]);
+    await ApiLoading.runSilently(() async {
+      final remote = await _planRepo.getPlan(planId);
+      if (remote == null) return;
+      _replacePlan(remote);
+      await users.prefetch([remote.creatorId, ...remote.tapInUserIds]);
+    });
   }
 
   bool canUploadPlanPhotos(SquadPlan plan) {
@@ -879,14 +963,52 @@ class AppState extends ChangeNotifier {
   Future<void> uploadPlanPhotos(String planId, List<XFile> files) async {
     if (files.isEmpty) return;
     try {
-      await _planPhotos.uploadPlanPhotos(planId, files);
+      await _uploadPlanPhotosWithProgress(planId, files);
+      planPhotoUploadProgress = PlanPhotoUploadProgress(
+        planId: planId,
+        completed: files.length,
+        total: files.length,
+        syncing: true,
+      );
+      notifyListeners();
       await _syncPlanFromApi(planId);
       notifyListeners();
     } catch (e) {
       apiProbeMessage = 'Upload photos failed: $e';
       notifyListeners();
       rethrow;
+    } finally {
+      planPhotoUploadProgress = null;
+      notifyListeners();
     }
+  }
+
+  Future<void> _uploadPlanPhotosWithProgress(
+    String planId,
+    List<XFile> files, {
+    int? maxCount,
+  }) async {
+    final slice = (maxCount != null ? files.take(maxCount) : files).toList();
+    if (slice.isEmpty) return;
+
+    void setProgress({required int completed, required bool syncing}) {
+      planPhotoUploadProgress = PlanPhotoUploadProgress(
+        planId: planId,
+        completed: completed,
+        total: slice.length,
+        syncing: syncing,
+      );
+      notifyListeners();
+    }
+
+    setProgress(completed: 0, syncing: false);
+    await _planPhotos.uploadPlanPhotos(
+      planId,
+      slice,
+      onProgress: (completed, total) {
+        setProgress(completed: completed, syncing: false);
+      },
+    );
   }
 
   Future<void> removePlanPhoto(String planId, String photoId) async {
@@ -973,11 +1095,15 @@ class AppState extends ChangeNotifier {
         notifyListeners();
         return apiProbeMessage!;
       }
-      final feed = await ApiPlanRepository(client: _apiClient).fetchFeed();
-      apiProbeMessage = 'API OK — ${feed.length} plan(s) from feed';
+      final page = await ApiPlanRepository(client: _apiClient).fetchFeed(
+        limit: feedPageSize,
+      );
+      apiProbeMessage = 'API OK — ${page.plans.length} plan(s) from feed';
       plans
         ..clear()
-        ..addAll(feed);
+        ..addAll(page.plans);
+      feedHasMore = page.hasMore;
+      _feedNextOffset = page.nextOffset;
       notifyListeners();
       return apiProbeMessage!;
     } catch (e) {
@@ -994,13 +1120,23 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> refreshFeedFromApi() async {
+    feedLoading = true;
+    feedLoadingMore = false;
+    _feedNextOffset = 0;
+    feedHasMore = true;
+    notifyListeners();
     try {
-      final feed = await _planRepo.fetchFeed();
+      final page = await _planRepo.fetchFeed(
+        limit: feedPageSize,
+        offset: 0,
+      );
       plans
         ..clear()
-        ..addAll(feed);
+        ..addAll(page.plans);
+      feedHasMore = page.hasMore;
+      _feedNextOffset = page.nextOffset;
       final ids = <String>{};
-      for (final p in feed) {
+      for (final p in page.plans) {
         ids.add(p.creatorId);
         ids.addAll(p.tapInUserIds);
       }
@@ -1008,8 +1144,43 @@ class AppState extends ChangeNotifier {
       await users.prefetch(ids);
     } catch (e) {
       apiProbeMessage = 'Feed sync failed: $e';
+    } finally {
+      feedLoading = false;
+      notifyListeners();
     }
+  }
+
+  /// Loads the next feed page when the dashboard is scrolled near the end.
+  Future<void> loadMoreFeed() async {
+    if (feedLoading || feedLoadingMore || !feedHasMore) return;
+    feedLoadingMore = true;
     notifyListeners();
+    try {
+      final page = await ApiLoading.runSilently(
+        () => _planRepo.fetchFeed(
+          limit: feedPageSize,
+          offset: _feedNextOffset,
+        ),
+      );
+      final seen = plans.map((p) => p.id).toSet();
+      for (final p in page.plans) {
+        if (seen.add(p.id)) plans.add(p);
+      }
+      feedHasMore = page.hasMore;
+      _feedNextOffset = page.nextOffset;
+      final ids = <String>{};
+      for (final p in page.plans) {
+        ids.add(p.creatorId);
+        ids.addAll(p.tapInUserIds);
+      }
+      await users.prefetch(ids);
+      apiProbeMessage = null;
+    } catch (e) {
+      apiProbeMessage = 'Feed load more failed: $e';
+    } finally {
+      feedLoadingMore = false;
+      notifyListeners();
+    }
   }
 
   Future<void> refreshRecapsFromApi() async {
@@ -1020,7 +1191,7 @@ class AppState extends ChangeNotifier {
       final list = await _planRepo.fetchRecaps();
       recapPlans
         ..clear()
-        ..addAll(list);
+        ..addAll(list.where(isPlanStarted));
       recapPlansError = null;
     } catch (e) {
       recapPlansError = e.toString();
@@ -1035,33 +1206,12 @@ class AppState extends ChangeNotifier {
       plan.id,
       shared: shared,
     );
-    for (var i = 0; i < recapPlans.length; i++) {
-      if (recapPlans[i].id == updated.id) {
-        recapPlans[i] = updated;
-        break;
-      }
-    }
-    _upsertPlanInCaches(updated);
+    _replacePlan(updated);
     notifyListeners();
   }
 
   Future<List<SquadPlan>> fetchProfileRecaps(String userId) =>
       _userRepo.fetchProfileRecaps(userId);
-
-  void _upsertPlanInCaches(SquadPlan updated) {
-    for (var i = 0; i < plans.length; i++) {
-      if (plans[i].id == updated.id) {
-        plans[i] = updated;
-        return;
-      }
-    }
-    for (var i = 0; i < recentPlans.length; i++) {
-      if (recentPlans[i].id == updated.id) {
-        recentPlans[i] = updated;
-        return;
-      }
-    }
-  }
 
   Future<void> refreshFriendsFromApi() async {
     try {

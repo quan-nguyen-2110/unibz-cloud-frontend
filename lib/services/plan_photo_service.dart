@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../models/api_json.dart';
 import '../models/models.dart';
 import 'api_client.dart';
+import 'api_loading.dart';
 
 class PlanPhotoService {
   PlanPhotoService({ApiClient? client, http.Client? httpClient})
@@ -28,19 +29,29 @@ class PlanPhotoService {
     String planId,
     List<XFile> files, {
     int? maxCount,
+    void Function(int completed, int total)? onProgress,
   }) async {
-    final slice = (maxCount != null ? files.take(maxCount) : files).toList();
-    final added = <PlanPhoto>[];
-    for (final file in slice) {
-      final bytes = await file.readAsBytes();
-      final contentType = contentTypeForPath(file.path);
-      added.add(await _uploadOne(planId, bytes, contentType));
-    }
-    return added;
+    return ApiLoading.runSilently(() async {
+      final slice = (maxCount != null ? files.take(maxCount) : files).toList();
+      final total = slice.length;
+      final added = <PlanPhoto>[];
+      var completed = 0;
+      onProgress?.call(completed, total);
+      for (final file in slice) {
+        final bytes = await file.readAsBytes();
+        final contentType = contentTypeForPath(file.path);
+        added.add(await _uploadOne(planId, bytes, contentType));
+        completed++;
+        onProgress?.call(completed, total);
+      }
+      return added;
+    });
   }
 
   Future<void> deletePlanPhoto(String planId, String photoId) async {
-    await _client.deleteJson('/plans/$planId/photos/$photoId');
+    await ApiLoading.runSilently(
+      () => _client.deleteJson('/plans/$planId/photos/$photoId'),
+    );
   }
 
   Future<PlanPhoto> _uploadOne(

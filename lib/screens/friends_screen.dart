@@ -10,7 +10,7 @@ import 'plan_detail_screen.dart';
 
 enum _FriendsTab { friends, requests, suggested, find }
 
-/// Friends hub — `squadUp-layout` `friends.tsx` (724828d).
+/// Friends hub — `squadUp-layout` `friends.tsx` (07e9f0c).
 class FriendsScreen extends StatefulWidget {
   const FriendsScreen({super.key, this.openRequestsTab = false});
 
@@ -24,22 +24,59 @@ class FriendsScreen extends StatefulWidget {
 class _FriendsScreenState extends State<FriendsScreen> {
   late _FriendsTab _tab;
   final _query = TextEditingController();
+  final _friendQuery = TextEditingController();
   List<SquadUser> _remoteSearchResults = [];
   bool _searching = false;
+  bool _suggestedRefreshing = false;
 
   @override
   void initState() {
     super.initState();
     _tab = widget.openRequestsTab ? _FriendsTab.requests : _FriendsTab.friends;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<AppState>().refreshFriendsFromApi();
+      final app = context.read<AppState>();
+      app.refreshFriendsFromApi();
+      if (_tab == _FriendsTab.suggested) {
+        app.loadSuggestedFriends();
+      }
     });
   }
 
   @override
   void dispose() {
     _query.dispose();
+    _friendQuery.dispose();
     super.dispose();
+  }
+
+  void _onTabSelected(_FriendsTab tab) {
+    setState(() => _tab = tab);
+    if (tab == _FriendsTab.suggested) {
+      final app = context.read<AppState>();
+      if (!app.suggestedFriendsLoading && app.suggestedFriends.isEmpty) {
+        app.loadSuggestedFriends();
+      }
+    }
+  }
+
+  Future<void> _reloadSuggested(AppState app) async {
+    setState(() => _suggestedRefreshing = true);
+    await app.loadSuggestedFriends(reload: true);
+    if (!mounted) return;
+    setState(() => _suggestedRefreshing = false);
+  }
+
+  List<SquadUser> _filterFriends(List<SquadUser> friends, String rawQuery) {
+    final fq = rawQuery.trim().toLowerCase();
+    if (fq.isEmpty) return friends;
+    return friends.where((u) {
+      if (u.displayName.toLowerCase().contains(fq)) return true;
+      if (u.username.toLowerCase().contains(fq)) return true;
+      final loc = profileLocationLine(u).toLowerCase();
+      if (loc.contains(fq)) return true;
+      final interests = u.interests ?? const <String>[];
+      return interests.any((i) => i.toLowerCase().contains(fq));
+    }).toList();
   }
 
   List<SquadUser> _friends(AppState app) =>
@@ -83,7 +120,9 @@ class _FriendsScreenState extends State<FriendsScreen> {
       builder: (context, app, _) {
         final friends = _friends(app);
         final incoming = _incoming(app);
-        final suggested = app.suggestedFriends(limit: 8);
+        final suggested = app.suggestedFriends;
+        final friendQuery = _friendQuery.text;
+        final filteredFriends = _filterFriends(friends, friendQuery);
         final q = _query.text;
         final results = _remoteSearchResults;
 
@@ -144,26 +183,26 @@ class _FriendsScreenState extends State<FriendsScreen> {
                           label: 'Friends',
                           count: friends.length,
                           selected: _tab == _FriendsTab.friends,
-                          onTap: () => setState(() => _tab = _FriendsTab.friends),
+                          onTap: () => _onTabSelected(_FriendsTab.friends),
                         ),
                         const SizedBox(width: 8),
                         _TabChip(
                           label: 'Requests',
                           count: incoming.length,
                           selected: _tab == _FriendsTab.requests,
-                          onTap: () => setState(() => _tab = _FriendsTab.requests),
+                          onTap: () => _onTabSelected(_FriendsTab.requests),
                         ),
                         const SizedBox(width: 8),
                         _TabChip(
                           label: 'Suggested',
                           selected: _tab == _FriendsTab.suggested,
-                          onTap: () => setState(() => _tab = _FriendsTab.suggested),
+                          onTap: () => _onTabSelected(_FriendsTab.suggested),
                         ),
                         const SizedBox(width: 8),
                         _TabChip(
                           label: 'Find',
                           selected: _tab == _FriendsTab.find,
-                          onTap: () => setState(() => _tab = _FriendsTab.find),
+                          onTap: () => _onTabSelected(_FriendsTab.find),
                         ),
                       ],
                     ),
@@ -172,25 +211,45 @@ class _FriendsScreenState extends State<FriendsScreen> {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 24),
                     child: switch (_tab) {
-                      _FriendsTab.friends => friends.isEmpty
-                          ? const _EmptyCard(
-                              icon: Icons.people_outline,
-                              title: 'No friends yet',
-                              hint:
-                                  'Tap Suggested or Find to start growing your squad.',
-                            )
-                          : Column(
-                              children: [
-                                for (final u in friends)
-                                  _PersonRow(
-                                    user: u,
-                                    action: _RemoveButton(
-                                      onPressed: () => app.removeFriend(u.id),
-                                    ),
-                                    onOpenProfile: () => _openProfile(context, u.id),
-                                  ),
-                              ],
+                      _FriendsTab.friends => Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            TextField(
+                              controller: _friendQuery,
+                              onChanged: (_) => setState(() {}),
+                              decoration: InputDecoration(
+                                hintText: 'Search friends',
+                                prefixIcon: const Icon(Icons.search_rounded),
+                                filled: true,
+                                fillColor: SquadColors.card,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(999),
+                                  borderSide: BorderSide.none,
+                                ),
+                              ),
                             ),
+                            const SizedBox(height: 12),
+                            if (filteredFriends.isEmpty)
+                              _EmptyCard(
+                                icon: Icons.people_outline,
+                                title: friendQuery.trim().isEmpty
+                                    ? 'No friends yet'
+                                    : 'No matches',
+                                hint: friendQuery.trim().isEmpty
+                                    ? 'Tap Suggested or Find to start growing your squad.'
+                                    : 'Nothing for "${friendQuery.trim()}".',
+                              )
+                            else
+                              for (final u in filteredFriends)
+                                _PersonRow(
+                                  user: u,
+                                  action: _RemoveButton(
+                                    onPressed: () => app.removeFriend(u.id),
+                                  ),
+                                  onOpenProfile: () => _openProfile(context, u.id),
+                                ),
+                          ],
+                        ),
                       _FriendsTab.requests => Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
@@ -247,24 +306,60 @@ class _FriendsScreenState extends State<FriendsScreen> {
                                 Icon(Icons.auto_awesome,
                                     size: 16, color: SquadColors.primary),
                                 const SizedBox(width: 6),
-                                Text(
-                                  'BASED ON YOUR INTERESTS',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: 0.6,
-                                    color: SquadColors.muted,
+                                Expanded(
+                                  child: Text(
+                                    'BASED ON YOUR INTERESTS',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0.6,
+                                      color: SquadColors.muted,
+                                    ),
+                                  ),
+                                ),
+                                Material(
+                                  color: SquadColors.card,
+                                  shape: const CircleBorder(),
+                                  child: InkWell(
+                                    customBorder: const CircleBorder(),
+                                    onTap: app.suggestedFriendsLoading
+                                        ? null
+                                        : () => _reloadSuggested(app),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(8),
+                                      child: _suggestedRefreshing ||
+                                              app.suggestedFriendsLoading
+                                          ? SizedBox(
+                                              width: 18,
+                                              height: 18,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: SquadColors.primary,
+                                              ),
+                                            )
+                                          : Icon(
+                                              Icons.refresh_rounded,
+                                              size: 18,
+                                              color: SquadColors.muted,
+                                            ),
+                                    ),
                                   ),
                                 ),
                               ],
                             ),
                             const SizedBox(height: 12),
-                            if (suggested.isEmpty)
+                            if (app.suggestedFriendsLoading &&
+                                suggested.isEmpty)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 24),
+                                child: Center(child: CircularProgressIndicator()),
+                              )
+                            else if (suggested.isEmpty)
                               const _EmptyCard(
                                 icon: Icons.auto_awesome_outlined,
-                                title: 'No suggestions yet',
+                                title: 'No suggestions right now',
                                 hint:
-                                    'Use Find to search by username and send a friend request.',
+                                    'Add interests to your profile to get matches.',
                               )
                             else
                               for (final u in suggested)

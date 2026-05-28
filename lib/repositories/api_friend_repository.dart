@@ -71,6 +71,23 @@ class ApiFriendRepository {
     );
   }
 
+  Future<FriendListPayload> fetchSuggested({
+    int limit = 10,
+    int seed = 0,
+  }) async {
+    final data = await _client.getJson(
+      '/friends/suggested',
+      query: {'limit': '$limit', 'seed': '$seed'},
+    );
+    final list = data['users'] as List<dynamic>? ?? [];
+    return FriendListPayload(
+      ids: list
+          .map((e) => (e as Map<String, dynamic>)['userId'] as String)
+          .toList(),
+      profiles: _parseProfiles(data),
+    );
+  }
+
   Future<FriendListPayload> fetchOutgoingRequests() async {
     final data = await _client.getJson('/friends/outgoing');
     final list = data['requests'] as List<dynamic>? ?? [];

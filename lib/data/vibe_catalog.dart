@@ -88,7 +88,55 @@ SquadVibe? squadVibeForPlan(SquadPlan plan) {
   return null;
 }
 
+@Deprecated('Use planMatchesVibeEmojiFilter with feed-derived emojis.')
 bool planMatchesVibeFilter(SquadPlan plan, SquadVibe filter) {
   if (filter == SquadVibe.all) return true;
   return squadVibeForPlan(plan) == filter;
+}
+
+/// Distinct [SquadPlan.vibeEmoji] values present in [plans] (most common first).
+List<String> vibeEmojisFromPlans(Iterable<SquadPlan> plans) {
+  final counts = <String, int>{};
+  for (final plan in plans) {
+    final emoji = plan.vibeEmoji.trim();
+    if (emoji.isEmpty) continue;
+    counts[emoji] = (counts[emoji] ?? 0) + 1;
+  }
+  final keys = counts.keys.toList()
+    ..sort((a, b) {
+      final byCount = counts[b]!.compareTo(counts[a]!);
+      if (byCount != 0) return byCount;
+      return a.compareTo(b);
+    });
+  return keys;
+}
+
+/// [selectedEmoji] `null` = show all plans.
+bool planMatchesVibeEmojiFilter(SquadPlan plan, String? selectedEmoji) {
+  if (selectedEmoji == null) return true;
+  return plan.vibeEmoji.trim() == selectedEmoji.trim();
+}
+
+VibeStyle vibeStyleForEmoji(String emoji) {
+  final mapped = squadVibeFromEmoji(emoji);
+  if (mapped != null) return kVibeMeta[mapped]!;
+  return VibeStyle(
+    label: '',
+    emoji: emoji,
+    softBg: SquadColors.mutedBg,
+    softFg: SquadColors.text,
+  );
+}
+
+/// Feed + squad sections without duplicate plan ids.
+List<SquadPlan> mergeFeedPlansForFilter({
+  required List<SquadPlan> recent,
+  required List<SquadPlan> squad,
+}) {
+  final seen = <String>{};
+  final out = <SquadPlan>[];
+  for (final plan in [...recent, ...squad]) {
+    if (seen.add(plan.id)) out.add(plan);
+  }
+  return out;
 }

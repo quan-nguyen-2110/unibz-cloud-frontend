@@ -9,15 +9,25 @@ class ApiPlanRepository implements PlanRepository {
   final ApiClient _client;
 
   @override
-  Future<List<SquadPlan>> fetchFeed({String status = 'active'}) async {
+  Future<FeedPage> fetchFeed({
+    String status = 'active',
+    int limit = 10,
+    int offset = 0,
+  }) async {
     final data = await _client.getJson('/plans/feed', query: {
       'status': status,
-      'limit': '50',
+      'limit': '$limit',
+      'offset': '$offset',
     });
     final list = data['plans'] as List<dynamic>? ?? [];
-    return list
+    final plans = list
         .map((e) => squadPlanFromJson(e as Map<String, dynamic>))
         .toList();
+    return FeedPage(
+      plans: plans,
+      hasMore: data['hasMore'] as bool? ?? false,
+      nextOffset: data['nextOffset'] as int? ?? offset + plans.length,
+    );
   }
 
   @override

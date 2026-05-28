@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../config/app_config.dart';
+import 'api_loading.dart';
 import 'auth_token_store.dart';
 
 class ApiException implements Exception {
@@ -43,51 +44,98 @@ class ApiClient {
     return h;
   }
 
-  Future<Map<String, dynamic>> getJson(String path,
-      {Map<String, String>? query}) async {
-    final res = await _client.get(_uri(path, query), headers: _headers());
-    return _decode(res);
+  Future<Map<String, dynamic>> getJson(
+    String path, {
+    Map<String, String>? query,
+    bool silent = false,
+  }) async {
+    return _withLoading(
+      () async {
+        final res = await _client.get(_uri(path, query), headers: _headers());
+        return _decode(res);
+      },
+      silent: silent,
+    );
   }
 
   Future<Map<String, dynamic>> postJson(
     String path, {
     Map<String, dynamic>? body,
+    bool silent = false,
   }) async {
-    final res = await _client.post(
-      _uri(path),
-      headers: _headers(jsonBody: body != null),
-      body: body != null ? jsonEncode(body) : null,
+    return _withLoading(
+      () async {
+        final res = await _client.post(
+          _uri(path),
+          headers: _headers(jsonBody: body != null),
+          body: body != null ? jsonEncode(body) : null,
+        );
+        return _decode(res);
+      },
+      silent: silent,
     );
-    return _decode(res);
   }
 
   Future<Map<String, dynamic>> putJson(
     String path, {
     Map<String, dynamic>? body,
+    bool silent = false,
   }) async {
-    final res = await _client.put(
-      _uri(path),
-      headers: _headers(jsonBody: body != null),
-      body: body != null ? jsonEncode(body) : null,
+    return _withLoading(
+      () async {
+        final res = await _client.put(
+          _uri(path),
+          headers: _headers(jsonBody: body != null),
+          body: body != null ? jsonEncode(body) : null,
+        );
+        return _decode(res);
+      },
+      silent: silent,
     );
-    return _decode(res);
   }
 
   Future<Map<String, dynamic>> patchJson(
     String path, {
     Map<String, dynamic>? body,
+    bool silent = false,
   }) async {
-    final res = await _client.patch(
-      _uri(path),
-      headers: _headers(jsonBody: body != null),
-      body: body != null ? jsonEncode(body) : null,
+    return _withLoading(
+      () async {
+        final res = await _client.patch(
+          _uri(path),
+          headers: _headers(jsonBody: body != null),
+          body: body != null ? jsonEncode(body) : null,
+        );
+        return _decode(res);
+      },
+      silent: silent,
     );
-    return _decode(res);
   }
 
-  Future<Map<String, dynamic>> deleteJson(String path) async {
-    final res = await _client.delete(_uri(path), headers: _headers());
-    return _decode(res);
+  Future<Map<String, dynamic>> deleteJson(
+    String path, {
+    bool silent = false,
+  }) async {
+    return _withLoading(
+      () async {
+        final res = await _client.delete(_uri(path), headers: _headers());
+        return _decode(res);
+      },
+      silent: silent,
+    );
+  }
+
+  Future<T> _withLoading<T>(
+    Future<T> Function() action, {
+    required bool silent,
+  }) async {
+    if (silent) return action();
+    ApiLoading.instance.begin();
+    try {
+      return await action();
+    } finally {
+      ApiLoading.instance.end();
+    }
   }
 
   Map<String, dynamic> _decode(http.Response res) {

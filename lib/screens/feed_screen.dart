@@ -30,16 +30,58 @@ class FeedScreen extends StatefulWidget {
 }
 
 class _FeedScreenState extends State<FeedScreen> {
-  SquadVibe _filter = SquadVibe.all;
+  String? _filterEmoji;
+  late final ScrollController _scrollController;
+  static const _loadMoreThreshold = 280.0;
+  bool _loadMoreQueued = false;
 
   @override
   void initState() {
     super.initState();
+    _scrollController = ScrollController()..addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final app = context.read<AppState>();
       app.refreshSquadFromApi();
       app.refreshNotifications();
     });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients || _loadMoreQueued) return;
+    final position = _scrollController.position;
+    if (!position.hasContentDimensions) return;
+    if (position.maxScrollExtent - position.pixels > _loadMoreThreshold) {
+      return;
+    }
+
+    final app = context.read<AppState>();
+    if (app.feedLoading || app.feedLoadingMore || !app.feedHasMore) return;
+
+    _loadMoreQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      _loadMoreQueued = false;
+      if (!mounted) return;
+      await context.read<AppState>().loadMoreFeed();
+    });
+  }
+
+  Widget _feedPlaceholder(
+    BuildContext context, {
+    required Widget child,
+  }) {
+    final minHeight = MediaQuery.sizeOf(context).height * 0.42;
+    return SliverToBoxAdapter(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(minHeight: minHeight),
+        child: Center(child: child),
+      ),
+    );
   }
 
   Future<void> _onRefresh() async {
@@ -60,13 +102,23 @@ class _FeedScreenState extends State<FeedScreen> {
     return Consumer<AppState>(
       builder: (context, app, _) {
         final uid = app.currentUser?.id;
+        final feedPlans = mergeFeedPlansForFilter(
+          recent: app.feedRecentPlans(),
+          squad: app.feedSquadPlans(),
+        );
+        final vibeEmojis = vibeEmojisFromPlans(feedPlans);
+        if (_filterEmoji != null && !vibeEmojis.contains(_filterEmoji)) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) setState(() => _filterEmoji = null);
+          });
+        }
         final recentItems = app
             .feedRecentPlans()
-            .where((p) => planMatchesVibeFilter(p, _filter))
+            .where((p) => planMatchesVibeEmojiFilter(p, _filterEmoji))
             .toList();
         final squadItems = app
             .feedSquadPlans()
-            .where((p) => planMatchesVibeFilter(p, _filter))
+            .where((p) => planMatchesVibeEmojiFilter(p, _filterEmoji))
             .toList();
         final going = _goingCount(app);
         final me = app.currentUser;
@@ -80,6 +132,7 @@ class _FeedScreenState extends State<FeedScreen> {
           onRefresh: _onRefresh,
           color: SquadColors.primary,
           child: CustomScrollView(
+            controller: _scrollController,
             physics: const AlwaysScrollableScrollPhysics(
               parent: BouncingScrollPhysics(),
             ),
@@ -168,21 +221,31 @@ class _FeedScreenState extends State<FeedScreen> {
               ),
             SliverToBoxAdapter(
               child: VibeChipRow(
-                selected: _filter,
-                onSelect: (v) => setState(() => _filter = v),
+                selectedEmoji: _filterEmoji,
+                emojis: vibeEmojis,
+                onSelect: (emoji) => setState(() => _filterEmoji = emoji),
               ),
             ),
             const SliverToBoxAdapter(child: SizedBox(height: 8)),
-            if (recentItems.isEmpty && squadItems.isEmpty)
-              SliverFillRemaining(
-                hasScrollBody: false,
+            if (app.feedLoading &&
+                recentItems.isEmpty &&
+                squadItems.isEmpty)
+              _feedPlaceholder(
+                context,
+                child: const CircularProgressIndicator(
+                  color: SquadColors.primary,
+                ),
+              )
+            else if (recentItems.isEmpty && squadItems.isEmpty)
+              _feedPlaceholder(
+                context,
                 child: Padding(
                   padding: const EdgeInsets.all(24),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        _filter == SquadVibe.all
+                        _filterEmoji == null
                             ? 'Your feed\'s quiet.'
                             : 'Nothing for this vibe yet.',
                         style: squadDisplay(context, 24),
@@ -298,6 +361,22 @@ class _FeedScreenState extends State<FeedScreen> {
                         uid,
                       ),
                       childCount: squadItems.length,
+                    ),
+                  ),
+                ),
+              if (app.feedLoadingMore)
+                const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(24, 16, 24, 120),
+                    child: Center(
+                      child: SizedBox(
+                        width: 28,
+                        height: 28,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          color: SquadColors.primary,
+                        ),
+                      ),
                     ),
                   ),
                 ),

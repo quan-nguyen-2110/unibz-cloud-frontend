@@ -1,4 +1,4 @@
-// Migrated from squadUp-layout/src/routes/my-plans.tsx (commit a960bb6).
+// Migrated from squadUp-layout/src/routes/my-plans.tsx (ceb66d0).
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -11,7 +11,7 @@ import '../theme/squad_theme.dart';
 import '../widgets/squad_layout_widgets.dart';
 import 'plan_detail_screen.dart';
 
-enum _MyPlansTab { upcoming, attended, hosting }
+enum _MyPlansTab { attended, hosting }
 
 class MyPlansScreen extends StatefulWidget {
   const MyPlansScreen({
@@ -28,7 +28,7 @@ class MyPlansScreen extends StatefulWidget {
 }
 
 class _MyPlansScreenState extends State<MyPlansScreen> {
-  _MyPlansTab _tab = _MyPlansTab.upcoming;
+  _MyPlansTab _tab = _MyPlansTab.attended;
 
   static String _formatPlanTime(DateTime t) {
     final now = DateTime.now();
@@ -53,8 +53,7 @@ class _MyPlansScreenState extends State<MyPlansScreen> {
           return const Center(child: Text('Sign in to see your plans'));
         }
 
-        final upcoming = app.myPlansUpcoming(uid);
-        final attended = app.myPlansAttended(uid);
+        final attended = app.myPlansUpcoming(uid);
         final hosting = app.myPlansHosting(uid);
 
         return CustomScrollView(
@@ -70,7 +69,6 @@ class _MyPlansScreenState extends State<MyPlansScreen> {
                 padding: const EdgeInsets.fromLTRB(24, 0, 24, 0),
                 child: _TabBar(
                   tab: _tab,
-                  upcomingCount: upcoming.length,
                   attendedCount: attended.length,
                   hostingCount: hosting.length,
                   onSelect: (t) => setState(() => _tab = t),
@@ -81,14 +79,7 @@ class _MyPlansScreenState extends State<MyPlansScreen> {
               padding: const EdgeInsets.fromLTRB(24, 20, 24, 120),
               sliver: SliverList(
                 delegate: SliverChildListDelegate(
-                  _buildTabBody(
-                    context,
-                    app,
-                    uid,
-                    upcoming,
-                    attended,
-                    hosting,
-                  ),
+                  _buildTabBody(context, app, attended, hosting),
                 ),
               ),
             ),
@@ -101,14 +92,12 @@ class _MyPlansScreenState extends State<MyPlansScreen> {
   List<Widget> _buildTabBody(
     BuildContext context,
     AppState app,
-    String uid,
-    List<SquadPlan> upcoming,
     List<SquadPlan> attended,
     List<SquadPlan> hosting,
   ) {
     switch (_tab) {
-      case _MyPlansTab.upcoming:
-        if (upcoming.isEmpty) {
+      case _MyPlansTab.attended:
+        if (attended.isEmpty) {
           return [
             _EmptyState(
               icon: Icons.event_note_rounded,
@@ -116,29 +105,6 @@ class _MyPlansScreenState extends State<MyPlansScreen> {
               body: "Join a plan from the home feed and it'll show up here.",
               ctaLabel: 'Find plans',
               onCta: widget.onSwitchToHome,
-            ),
-          ];
-        }
-        return upcoming
-            .map(
-              (p) => Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: _GuestPlanCard(
-                  plan: p,
-                  nameFor: app.displayNameFor,
-                  timeLabel: _formatPlanTime(p.startAt),
-                  past: false,
-                ),
-              ),
-            )
-            .toList();
-      case _MyPlansTab.attended:
-        if (attended.isEmpty) {
-          return [
-            const _EmptyState(
-              icon: Icons.check_circle_outline_rounded,
-              title: 'No past plans yet',
-              body: "Once a plan wraps, it'll land here so you can look back.",
             ),
           ];
         }
@@ -150,7 +116,7 @@ class _MyPlansScreenState extends State<MyPlansScreen> {
                   plan: p,
                   nameFor: app.displayNameFor,
                   timeLabel: _formatPlanTime(p.startAt),
-                  past: true,
+                  past: false,
                 ),
               ),
             )
@@ -187,14 +153,12 @@ class _MyPlansScreenState extends State<MyPlansScreen> {
 class _TabBar extends StatelessWidget {
   const _TabBar({
     required this.tab,
-    required this.upcomingCount,
     required this.attendedCount,
     required this.hostingCount,
     required this.onSelect,
   });
 
   final _MyPlansTab tab;
-  final int upcomingCount;
   final int attendedCount;
   final int hostingCount;
   final ValueChanged<_MyPlansTab> onSelect;
@@ -209,13 +173,6 @@ class _TabBar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          _TabChip(
-            label: 'Upcoming',
-            count: upcomingCount,
-            active: tab == _MyPlansTab.upcoming,
-            countStyle: _TabCountStyle.primary,
-            onTap: () => onSelect(_MyPlansTab.upcoming),
-          ),
           _TabChip(
             label: 'Attended',
             count: attendedCount,

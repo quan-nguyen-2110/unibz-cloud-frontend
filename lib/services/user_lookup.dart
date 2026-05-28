@@ -4,6 +4,7 @@ import '../models/models.dart';
 import '../models/api_json.dart';
 import '../repositories/api_user_repository.dart';
 import 'api_client.dart';
+import 'api_loading.dart';
 
 /// In-memory cache of users resolved from the API.
 class UserLookup {
@@ -104,15 +105,17 @@ class UserLookup {
         .toSet();
     if (pending.isEmpty) return;
 
-    await Future.wait(
-      pending.map((id) async {
-        try {
-          await resolve(id);
-        } catch (e, st) {
-          debugPrint('UserLookup.prefetch failed for $id: $e\n$st');
-        }
-      }),
-    );
+    await ApiLoading.runSilently(() async {
+      await Future.wait(
+        pending.map((id) async {
+          try {
+            await resolve(id);
+          } catch (e, st) {
+            debugPrint('UserLookup.prefetch failed for $id: $e\n$st');
+          }
+        }),
+      );
+    });
   }
 
   Future<List<SquadUser>> usersForIds(Iterable<String> ids) async {

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'screens/auth_gate.dart';
 import 'state/app_state.dart';
 import 'theme/squad_theme.dart';
+import 'widgets/api_loading_overlay.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,6 +23,15 @@ class SquadUpApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         theme: buildSquadTheme(),
         home: const AuthGate(),
+        builder: (context, child) {
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              if (child != null) child,
+              const ApiLoadingOverlay(),
+            ],
+          );
+        },
       ),
     );
   }

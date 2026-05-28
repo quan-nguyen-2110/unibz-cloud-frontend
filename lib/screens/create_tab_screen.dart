@@ -1,7 +1,6 @@
-// Migrated from squadUp-layout/src/routes/create.tsx (9b5809d)
+// Migrated from squadUp-layout/src/routes/create.tsx (3994ab7)
 
 import 'dart:io' show File;
-import 'dart:ui' show ImageFilter;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,9 +10,11 @@ import 'package:provider/provider.dart';
 
 import '../data/vibe_catalog.dart';
 import '../models/models.dart';
+import '../services/api_loading.dart';
 import '../state/app_state.dart';
 import '../theme/squad_theme.dart';
 import 'plan_detail_screen.dart';
+import '../widgets/plan_photo_upload_overlay.dart';
 import '../widgets/squad_layout_widgets.dart';
 import '../widgets/voice_dictate_dialog.dart';
 
@@ -200,10 +201,12 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
     );
     SquadPlan? plan;
     try {
-      plan = await context.read<AppState>().addPlanFromDraft(
-        draft,
-        PlanSource.manual,
-        localPhotos: List<XFile>.from(_photos),
+      plan = await ApiLoading.runSilently(
+        () => context.read<AppState>().addPlanFromDraft(
+          draft,
+          PlanSource.manual,
+          localPhotos: List<XFile>.from(_photos),
+        ),
       );
     } finally {
       if (mounted) setState(() => _posting = false);
@@ -277,21 +280,9 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
         ScreenHeader(
           title: 'Create Plan',
           subtitle: 'Make it happen',
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _CircleToolButton(
-                icon: Icons.edit_rounded,
-                filled: true,
-                onPressed: () {},
-              ),
-              const SizedBox(width: 8),
-              _CircleToolButton(
-                icon: Icons.mic_rounded,
-                filled: false,
-                onPressed: () => _openVoice(context),
-              ),
-            ],
+          trailing: _CircleToolButton(
+            icon: Icons.mic_rounded,
+            onPressed: () => _openVoice(context),
           ),
         ),
         Padding(
@@ -324,47 +315,16 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        TextField(
-                          controller: _desc,
-                          maxLines: 4,
-                          maxLength: 200,
-                          textCapitalization: TextCapitalization.sentences,
-                          decoration: const InputDecoration(
-                            hintText:
-                                'Describe the vibe… or tap the mic to speak it',
-                            counterText: '',
-                            contentPadding: EdgeInsets.fromLTRB(12, 12, 48, 12),
-                          ),
-                          onChanged: (_) => setState(() {}),
-                        ),
-                        Positioned(
-                          top: 8,
-                          right: 8,
-                          child: Material(
-                            color: SquadColors.secondary,
-                            borderRadius: BorderRadius.circular(12),
-                            elevation: 2,
-                            shadowColor:
-                                SquadColors.primary.withValues(alpha: 0.1),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(12),
-                              onTap: () => _openVoice(context),
-                              child: const SizedBox(
-                                width: 36,
-                                height: 36,
-                                child: Icon(
-                                  Icons.mic_rounded,
-                                  size: 18,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
+                    TextField(
+                      controller: _desc,
+                      maxLines: 4,
+                      maxLength: 200,
+                      textCapitalization: TextCapitalization.sentences,
+                      decoration: const InputDecoration(
+                        hintText: 'Describe the vibe…',
+                        counterText: '',
+                      ),
+                      onChanged: (_) => setState(() {}),
                     ),
                     Align(
                       alignment: Alignment.centerRight,
@@ -798,7 +758,22 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
       ],
     ),
         ),
-        if (_posting) const _PostingPlanOverlay(),
+        if (_posting)
+          Consumer<AppState>(
+            builder: (context, app, _) {
+              final photoProgress = app.planPhotoUploadProgress;
+              if (photoProgress != null) {
+                return PlanPhotoUploadScreenOverlay(
+                  title: photoProgress.title,
+                  progress: photoProgress,
+                );
+              }
+              return const PlanPhotoUploadScreenOverlay(
+                title: 'Posting your plan…',
+                subtitle: 'Hang tight for a moment',
+              );
+            },
+          ),
       ],
     );
   }
@@ -908,30 +883,26 @@ class _ScheduleField extends StatelessWidget {
 class _CircleToolButton extends StatelessWidget {
   const _CircleToolButton({
     required this.icon,
-    required this.filled,
     required this.onPressed,
   });
 
   final IconData icon;
-  final bool filled;
   final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: filled ? SquadColors.primary : SquadColors.inputFill,
+      color: SquadColors.secondary,
       borderRadius: BorderRadius.circular(18),
+      elevation: 2,
+      shadowColor: SquadColors.primary.withValues(alpha: 0.1),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onPressed,
         child: SizedBox(
           width: 44,
           height: 44,
-          child: Icon(
-            icon,
-            color: filled ? Colors.white : SquadColors.muted,
-            size: 22,
-          ),
+          child: Icon(icon, color: Colors.white, size: 22),
         ),
       ),
     );
@@ -1065,54 +1036,3 @@ class _VibePickTile extends StatelessWidget {
 }
 
 /// Layout `create.tsx` — full-screen overlay while plan is posting.
-class _PostingPlanOverlay extends StatelessWidget {
-  const _PostingPlanOverlay();
-
-  @override
-  Widget build(BuildContext context) {
-    return Positioned.fill(
-      child: Material(
-        color: Colors.transparent,
-        child: ColoredBox(
-          color: const Color(0xFFFDF2F7).withValues(alpha: 0.88),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(
-                    width: 64,
-                    height: 64,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 4,
-                      color: SquadColors.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    'Posting your plan…',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: SquadColors.text,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Hang tight for a moment',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: SquadColors.muted,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}

@@ -1,8 +1,25 @@
 import '../models/models.dart';
 
+/// One page of dashboard feed results from `GET /plans/feed`.
+class FeedPage {
+  const FeedPage({
+    required this.plans,
+    required this.hasMore,
+    required this.nextOffset,
+  });
+
+  final List<SquadPlan> plans;
+  final bool hasMore;
+  final int nextOffset;
+}
+
 /// Data access for plans via HTTP API.
 abstract class PlanRepository {
-  Future<List<SquadPlan>> fetchFeed({String status = 'active'});
+  Future<FeedPage> fetchFeed({
+    String status = 'active',
+    int limit = 10,
+    int offset = 0,
+  });
   Future<SquadPlan?> getPlan(String id);
   Future<SquadPlan> createPlan(PlanDraft draft, PlanSource source);
   Future<TapInOutcome?> tapIn(String planId);
