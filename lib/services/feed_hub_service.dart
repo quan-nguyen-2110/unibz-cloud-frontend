@@ -122,6 +122,7 @@ class FeedHubService {
         'attendeeLeft': 'attendee_left',
         'removedFromPlan': 'removed_from_plan',
         'friendRequest': 'friend_request',
+        'squadLocked': 'plan_locked',
       };
       final inboxType = inboxTargets[target];
       if (inboxType != null) {

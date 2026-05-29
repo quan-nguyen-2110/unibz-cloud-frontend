@@ -22,6 +22,7 @@ class VoiceDictateSample {
     required this.startAt,
     required this.location,
     required this.people,
+    this.durationMinutes,
   });
 
   final String text;
@@ -33,6 +34,9 @@ class VoiceDictateSample {
   final DateTime startAt;
   final String location;
   final int people;
+
+  /// Estimated event length in minutes, or null when the AI didn't detect one.
+  final int? durationMinutes;
 }
 
 enum _VoicePhase { idle, parsing, error }
@@ -223,6 +227,7 @@ class _VoiceDictateDialogState extends State<_VoiceDictateDialog> {
               ? generated.location!.trim()
               : 'TBD',
           people: generated.maxPeople < 0 ? -1 : generated.maxPeople.clamp(2, 30),
+          durationMinutes: generated.durationMinutes,
         ),
       );
     } on ApiException catch (e) {

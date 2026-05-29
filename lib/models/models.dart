@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-enum PlanStatus { active, locked, completed }
+enum PlanStatus { active, locked, ongoing, completed }
 
 enum PlanSource { manual, voice, suggestion }
 
@@ -30,15 +30,20 @@ class PlanActivity {
   final int? durationMinutes;
 
   /// Human-readable time spend, or null.
-  String? get durationLabel {
-    final m = durationMinutes;
-    if (m == null || m <= 0) return null;
-    if (m < 60) return '$m min';
-    final h = m ~/ 60;
-    final r = m % 60;
-    if (r == 0) return '$h h';
-    return '$h h $r min';
-  }
+  String? get durationLabel => formatDurationMinutes(durationMinutes);
+}
+
+/// Formats a minute count into a short "1 h 30 min" style label, or null when
+/// the value is missing or non-positive. Shared by [PlanActivity] and
+/// [SquadPlan] (plan-level estimated time spend).
+String? formatDurationMinutes(int? minutes) {
+  final m = minutes;
+  if (m == null || m <= 0) return null;
+  if (m < 60) return '$m min';
+  final h = m ~/ 60;
+  final r = m % 60;
+  if (r == 0) return '$h h';
+  return '$h h $r min';
 }
 
 @immutable
@@ -134,6 +139,7 @@ class PlanDraft {
     this.location,
     this.gameName,
     this.threshold = 2,
+    this.durationMinutes,
     this.transcript,
     this.visibility = PlanVisibility.public,
   });
@@ -150,6 +156,9 @@ class PlanDraft {
   final String? location;
   final String? gameName;
   final int threshold;
+
+  /// Estimated time the whole event takes, in minutes; may be null.
+  final int? durationMinutes;
   final String? transcript;
   final PlanVisibility visibility;
 
@@ -162,6 +171,7 @@ class PlanDraft {
     String? location,
     String? gameName,
     int? threshold,
+    int? durationMinutes,
     String? transcript,
     PlanVisibility? visibility,
   }) {
@@ -174,6 +184,7 @@ class PlanDraft {
       location: location ?? this.location,
       gameName: gameName ?? this.gameName,
       threshold: threshold ?? this.threshold,
+      durationMinutes: durationMinutes ?? this.durationMinutes,
       transcript: transcript ?? this.transcript,
       visibility: visibility ?? this.visibility,
     );
@@ -191,6 +202,7 @@ class SquadPlan {
     required this.status,
     required this.source,
     this.description,
+    this.durationMinutes,
     List<PlanActivity>? activities,
     this.gameName,
     this.location,
@@ -213,6 +225,9 @@ class SquadPlan {
   final String vibeEmoji;
   final String title;
   final String? description;
+
+  /// Estimated time the whole event takes, in minutes; may be null.
+  final int? durationMinutes;
   final List<PlanActivity> activities;
   final String? gameName;
   final String? location;
@@ -234,7 +249,13 @@ class SquadPlan {
 
   int get tapInCount => tapInUserIds.length;
 
+  /// Human-readable estimated time spend (e.g. "2 h"), or null.
+  String? get durationLabel => formatDurationMinutes(durationMinutes);
+
   bool get hasStarted => !DateTime.now().toUtc().isBefore(startAt.toUtc());
+
+  /// Server-marked "in progress": started and still within its duration.
+  bool get isOngoing => status == PlanStatus.ongoing;
 
   bool get isPrivate => visibility == PlanVisibility.private;
 

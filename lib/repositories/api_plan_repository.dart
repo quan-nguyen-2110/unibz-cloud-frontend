@@ -69,6 +69,11 @@ class ApiPlanRepository implements PlanRepository {
   }
 
   @override
+  Future<void> lockPlan(String planId) async {
+    await _client.postJson('/plans/$planId/lock');
+  }
+
+  @override
   Future<SquadPlan> updatePlan(String planId, PlanDraft draft) async {
     final data = await _client.putJson(
       '/plans/$planId',

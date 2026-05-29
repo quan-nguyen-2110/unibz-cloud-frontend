@@ -48,6 +48,47 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
     );
   }
 
+  Future<void> _confirmLock(
+    BuildContext context,
+    AppState app,
+    SquadPlan plan,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Lock this squad?'),
+        content: Text(
+          'Locking "${plan.title}" closes it to new tap-ins and stops '
+          'attendees from leaving. You can still remove people, but the squad '
+          'can\'t be reopened.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Not yet'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Lock squad'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    try {
+      await app.lockPlan(plan.id);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('"${plan.title}" is locked. The squad is set.')),
+      );
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not lock the plan. Try again.')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<AppState>(
@@ -84,6 +125,8 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
         final userIsHost = app.isHost(plan);
         final canEdit = app.canEditPlan(plan);
         final locked = plan.status == PlanStatus.locked;
+        final ongoing = plan.status == PlanStatus.ongoing;
+        final started = plan.hasStarted;
         final joined = uid != null && plan.userHasTappedIn(uid);
         final canJoin = !cancelled &&
             plan.status == PlanStatus.active &&
@@ -325,6 +368,14 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
                                           label: 'When',
                                           value: AppDateTime.formatPlanTime(plan.startAt),
                                         ),
+                                        if (plan.durationLabel != null) ...[
+                                          const SizedBox(height: 12),
+                                          _DetailRow(
+                                            icon: Icons.hourglass_bottom_rounded,
+                                            label: 'Est. time',
+                                            value: plan.durationLabel!,
+                                          ),
+                                        ],
                                         const SizedBox(height: 12),
                                         _DetailRow(
                                           icon: Icons.place_rounded,
@@ -340,9 +391,11 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
                                         _DetailRow(
                                           icon: Icons.people_rounded,
                                           label: 'Spots',
-                                          value: locked
-                                              ? 'Locked'
-                                              : '$spotsOpen left',
+                                          value: ongoing
+                                              ? 'Happening now'
+                                              : locked
+                                                  ? 'Locked'
+                                                  : '$spotsOpen left',
                                         ),
                                       ],
                                     ),
@@ -458,6 +511,7 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
                                       joined: joined,
                                       isHost: userIsHost,
                                       canJoin: canJoin,
+                                      canLeave: !started,
                                       onJoin: () async {
                                         HapticFeedback.lightImpact();
                                         final o = await app.tapIn(plan.id);
@@ -468,7 +522,51 @@ class _PlanDetailScreenState extends State<PlanDetailScreen> {
                                       onLeave: () =>
                                           _confirmLeave(context, app, plan),
                                     ),
-                                    if (userIsHost) ...[
+                                    if (userIsHost && !started) ...[
+                                      if (!locked) ...[
+                                        const SizedBox(height: 12),
+                                        GestureDetector(
+                                          onTap: () => _confirmLock(
+                                            context,
+                                            app,
+                                            plan,
+                                          ),
+                                          child: Container(
+                                            width: double.infinity,
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 16,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: SquadColors.primary
+                                                  .withValues(alpha: 0.08),
+                                              borderRadius:
+                                                  BorderRadius.circular(16),
+                                              border: Border.all(
+                                                color: SquadColors.primary
+                                                    .withValues(alpha: 0.3),
+                                              ),
+                                            ),
+                                            child: Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.center,
+                                              children: [
+                                                Icon(Icons.lock_rounded,
+                                                    color: SquadColors.primary,
+                                                    size: 20),
+                                                const SizedBox(width: 8),
+                                                Text(
+                                                  'Lock squad',
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.w800,
+                                                    fontSize: 16,
+                                                    color: SquadColors.primary,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                       const SizedBox(height: 12),
                                       GestureDetector(
                                         onTap: () {
@@ -771,6 +869,7 @@ class _JoinBar extends StatelessWidget {
     required this.joined,
     required this.isHost,
     required this.canJoin,
+    required this.canLeave,
     required this.onJoin,
     required this.onLeave,
   });
@@ -779,6 +878,7 @@ class _JoinBar extends StatelessWidget {
   final bool joined;
   final bool isHost;
   final bool canJoin;
+  final bool canLeave;
   final VoidCallback onJoin;
   final VoidCallback onLeave;
 
@@ -822,7 +922,7 @@ class _JoinBar extends StatelessWidget {
     }
     if (joined) {
       return GestureDetector(
-        onTap: onLeave,
+        onTap: canLeave ? onLeave : null,
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(vertical: 16),

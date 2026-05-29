@@ -5,6 +5,8 @@ PlanStatus _statusFromJson(String? raw) {
   switch (raw) {
     case 'locked':
       return PlanStatus.locked;
+    case 'ongoing':
+      return PlanStatus.ongoing;
     case 'completed':
       return PlanStatus.completed;
     default:
@@ -73,11 +75,11 @@ PlanPhoto planPhotoFromJson(Map<String, dynamic> json) {
 }
 
 Map<String, dynamic> planActivityToJson(PlanActivity a) => {
-      'emoji': a.emoji,
-      'title': a.title,
-      if (a.location != null) 'location': a.location,
-      if (a.durationMinutes != null) 'durationMinutes': a.durationMinutes,
-    };
+  'emoji': a.emoji,
+  'title': a.title,
+  if (a.location != null) 'location': a.location,
+  if (a.durationMinutes != null) 'durationMinutes': a.durationMinutes,
+};
 
 SquadPlan squadPlanFromJson(Map<String, dynamic> json) {
   final activities = (json['activities'] as List<dynamic>? ?? [])
@@ -94,6 +96,7 @@ SquadPlan squadPlanFromJson(Map<String, dynamic> json) {
     vibeEmoji: json['vibeEmoji'] as String? ?? '✨',
     title: json['title'] as String,
     description: json['description'] as String?,
+    durationMinutes: json['durationMinutes'] as int?,
     activities: activities,
     gameName: json['gameName'] as String?,
     location: json['location'] as String?,
@@ -116,18 +119,19 @@ SquadPlan squadPlanFromJson(Map<String, dynamic> json) {
 }
 
 Map<String, dynamic> planDraftToJson(PlanDraft draft, PlanSource source) => {
-      'vibeEmoji': draft.vibeEmoji,
-      'title': draft.title,
-      'startAt': draft.startAt.toUtc().toIso8601String(),
-      'threshold': draft.threshold,
-      if (draft.description != null) 'description': draft.description,
-      'activities': draft.activities.map(planActivityToJson).toList(),
-      if (draft.location != null) 'location': draft.location,
-      if (draft.gameName != null) 'gameName': draft.gameName,
-      if (draft.transcript != null) 'transcript': draft.transcript,
-      'source': _sourceToJson(source),
-      'visibility': _visibilityToJson(draft.visibility),
-    };
+  'vibeEmoji': draft.vibeEmoji,
+  'title': draft.title,
+  'startAt': draft.startAt.toUtc().toIso8601String(),
+  'threshold': draft.threshold,
+  if (draft.description != null) 'description': draft.description,
+  if (draft.durationMinutes != null) 'durationMinutes': draft.durationMinutes,
+  'activities': draft.activities.map(planActivityToJson).toList(),
+  if (draft.location != null) 'location': draft.location,
+  if (draft.gameName != null) 'gameName': draft.gameName,
+  if (draft.transcript != null) 'transcript': draft.transcript,
+  'source': _sourceToJson(source),
+  'visibility': _visibilityToJson(draft.visibility),
+};
 
 TapInOutcome tapInOutcomeFromJson(Map<String, dynamic> json) {
   return TapInOutcome(squadLocked: json['squadLocked'] as bool? ?? false);
@@ -179,7 +183,10 @@ FeedPlanHubEvent? feedPlanHubEventFromJson(
     case 'planTapIn':
       final planId = json['planId'] as String?;
       final userId = json['userId'] as String?;
-      if (planId == null || planId.isEmpty || userId == null || userId.isEmpty) {
+      if (planId == null ||
+          planId.isEmpty ||
+          userId == null ||
+          userId.isEmpty) {
         return null;
       }
       return FeedPlanHubEvent.tapIn(
@@ -190,7 +197,10 @@ FeedPlanHubEvent? feedPlanHubEventFromJson(
     case 'planTapOut':
       final planId = json['planId'] as String?;
       final userId = json['userId'] as String?;
-      if (planId == null || planId.isEmpty || userId == null || userId.isEmpty) {
+      if (planId == null ||
+          planId.isEmpty ||
+          userId == null ||
+          userId.isEmpty) {
         return null;
       }
       return FeedPlanHubEvent.tapOut(planId: planId, userId: userId);
@@ -206,13 +216,10 @@ FeedPlanHubEvent? feedPlanHubEventFromJson(
   }
 }
 
-PlanCancelledHubEvent planCancelledHubEventFromJson(
-  Map<String, dynamic> json,
-) {
+PlanCancelledHubEvent planCancelledHubEventFromJson(Map<String, dynamic> json) {
   return PlanCancelledHubEvent(
     planId: json['planId'] as String? ?? '',
-    message: json['message'] as String? ??
-        'A plan you joined was cancelled.',
+    message: json['message'] as String? ?? 'A plan you joined was cancelled.',
     notificationId: json['notificationId'] as String?,
     hostId: json['hostId'] as String?,
     hostName: json['hostName'] as String?,
@@ -261,6 +268,17 @@ InboxNotificationHubEvent inboxNotificationHubEventFromJson(
         hostId: json['hostId'] as String?,
         hostName: json['hostName'] as String?,
       );
+    case 'plan_locked':
+      return InboxNotificationHubEvent(
+        type: 'plan_locked',
+        title: 'Squad locked',
+        body: message.isNotEmpty
+            ? message
+            : 'Your squad is full — the plan is locked in!',
+        notificationId: json['notificationId'] as String?,
+        planId: json['planId'] as String?,
+        planTitle: json['planTitle'] as String?,
+      );
     case 'friend_request':
       return InboxNotificationHubEvent(
         type: 'friend_request',
@@ -296,6 +314,8 @@ SquadUser squadUserFromJson(Map<String, dynamic> json) {
     city: json['city'] as String? ?? '',
     avatarEmoji: '\u{1F9D1}',
     bio: bio != null && bio.trim().isNotEmpty ? bio.trim() : null,
-    avatarUrl: avatarUrl != null && avatarUrl.trim().isNotEmpty ? avatarUrl.trim() : null,
+    avatarUrl: avatarUrl != null && avatarUrl.trim().isNotEmpty
+        ? avatarUrl.trim()
+        : null,
   );
 }

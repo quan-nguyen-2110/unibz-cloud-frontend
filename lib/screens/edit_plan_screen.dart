@@ -24,6 +24,16 @@ class EditPlanScreen extends StatefulWidget {
 class _EditPlanScreenState extends State<EditPlanScreen> {
   static const _counts = [2, 4, 6, 8, 10];
   static const _unlimitedThreshold = 99;
+  static const _minDuration = 5;
+  static const _maxDuration = 1440;
+  static const _durationPresets = <(String, int)>[
+    ('30m', 30),
+    ('1h', 60),
+    ('1h 30m', 90),
+    ('2h', 120),
+    ('3h', 180),
+    ('4h', 240),
+  ];
 
   late SquadVibe _vibe;
   late final TextEditingController _desc;
@@ -32,6 +42,8 @@ class _EditPlanScreenState extends State<EditPlanScreen> {
   late TimeOfDay _whenTime;
   late bool _maxUnlimited;
   late final TextEditingController _customMax;
+  int? _durationMinutes;
+  late final TextEditingController _customDuration;
   late PlanVisibility _visibility;
   bool _saving = false;
 
@@ -60,6 +72,10 @@ class _EditPlanScreenState extends State<EditPlanScreen> {
     _customMax = TextEditingController(
       text: _maxUnlimited ? '2' : plan.threshold.toString(),
     );
+    _durationMinutes = plan.durationMinutes;
+    _customDuration = TextEditingController(
+      text: _durationMinutes == null ? '' : '$_durationMinutes',
+    );
     _visibility = plan.visibility;
   }
 
@@ -68,6 +84,7 @@ class _EditPlanScreenState extends State<EditPlanScreen> {
     _desc.dispose();
     _location.dispose();
     _customMax.dispose();
+    _customDuration.dispose();
     super.dispose();
   }
 
@@ -75,6 +92,26 @@ class _EditPlanScreenState extends State<EditPlanScreen> {
     final n = int.tryParse(_customMax.text.trim());
     if (n == null || n < 2) return 2;
     return n.clamp(2, 100);
+  }
+
+  void _setDuration(int minutes) {
+    final clamped = minutes.clamp(_minDuration, _maxDuration);
+    setState(() {
+      _durationMinutes = clamped;
+      final text = '$clamped';
+      if (_customDuration.text != text) _customDuration.text = text;
+    });
+  }
+
+  void _onCustomDurationChanged(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      setState(() => _durationMinutes = null);
+      return;
+    }
+    final n = int.tryParse(trimmed);
+    if (n == null) return;
+    setState(() => _durationMinutes = n.clamp(_minDuration, _maxDuration));
   }
 
   int get _saveThreshold =>
@@ -138,6 +175,7 @@ class _EditPlanScreenState extends State<EditPlanScreen> {
       ],
       location: loc.isNotEmpty ? loc : 'TBD',
       threshold: _saveThreshold,
+      durationMinutes: _durationMinutes,
       visibility: _visibility,
     );
 
@@ -321,6 +359,51 @@ class _EditPlanScreenState extends State<EditPlanScreen> {
                                     onChanged: (_) => setState(() {}),
                                   ),
                                 ],
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          _EditSection(
+                            title: 'How long',
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    ChoiceChip(
+                                      label: const Text('Not sure'),
+                                      selected: _durationMinutes == null,
+                                      onSelected: (_) => setState(() {
+                                        _durationMinutes = null;
+                                        _customDuration.clear();
+                                      }),
+                                    ),
+                                    for (final preset in _durationPresets)
+                                      ChoiceChip(
+                                        label: Text(preset.$1),
+                                        selected: _durationMinutes == preset.$2,
+                                        onSelected: (_) =>
+                                            _setDuration(preset.$2),
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                TextField(
+                                  controller: _customDuration,
+                                  keyboardType: TextInputType.number,
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.digitsOnly,
+                                  ],
+                                  decoration: const InputDecoration(
+                                    labelText: 'Custom minutes',
+                                    helperText: 'Leave empty for "Not sure"',
+                                    suffixText: 'minutes',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  onChanged: _onCustomDurationChanged,
+                                ),
                               ],
                             ),
                           ),

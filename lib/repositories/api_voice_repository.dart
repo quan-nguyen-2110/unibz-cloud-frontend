@@ -52,6 +52,7 @@ class GeneratedVoicePlan {
     required this.startAt,
     this.location,
     required this.maxPeople,
+    this.durationMinutes,
   });
 
   final String vibeEmoji;
@@ -61,6 +62,9 @@ class GeneratedVoicePlan {
   final DateTime startAt;
   final String? location;
   final int maxPeople;
+
+  /// Estimated event length in minutes, or null when not stated.
+  final int? durationMinutes;
 
   factory GeneratedVoicePlan.fromJson(Map<String, dynamic> json) {
     final loc = json['location'];
@@ -81,6 +85,7 @@ class GeneratedVoicePlan {
       startAt: parsedStartAt ?? fallbackStartAt,
       location: location,
       maxPeople: json['maxPeople'] as int? ?? json['maxAttendees'] as int? ?? -1,
+      durationMinutes: json['durationMinutes'] as int?,
     );
   }
 }

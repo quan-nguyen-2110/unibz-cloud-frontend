@@ -25,6 +25,7 @@ class AppState extends ChangeNotifier {
   AppState() {
     currentUser = null;
     _planRepo = ApiPlanRepository();
+    _startPlanBoundaryWatcher();
   }
 
   late final ApiPlanRepository _planRepo;
@@ -69,6 +70,36 @@ class AppState extends ChangeNotifier {
   final Set<String> _pendingPlanSyncs = {};
   final Set<String> _pendingLockCelebrations = {};
   Timer? _planSyncDebounce;
+
+  /// Re-evaluates the time-based started/not-started boundary so plans move out
+  /// of My Plans (and into Recaps) the moment their `startAt` passes, without
+  /// waiting for an unrelated rebuild.
+  Timer? _planBoundaryTicker;
+
+  /// Plan ids already observed as started — used to detect boundary crossings.
+  final Set<String> _startedPlanIds = {};
+
+  static const Duration _planBoundaryInterval = Duration(seconds: 30);
+
+  void _startPlanBoundaryWatcher() {
+    _planBoundaryTicker?.cancel();
+    _planBoundaryTicker =
+        Timer.periodic(_planBoundaryInterval, (_) => _checkPlanBoundaries());
+  }
+
+  /// Notifies listeners (and refreshes Recaps) when any in-memory plan crosses
+  /// its `startAt`, so the started plan leaves My Plans and lands on Recaps.
+  void _checkPlanBoundaries() {
+    var crossed = false;
+    for (final p in [...recentPlans, ...plans]) {
+      if (p.hasStarted && _startedPlanIds.add(p.id)) {
+        crossed = true;
+      }
+    }
+    if (!crossed) return;
+    notifyListeners();
+    if (isAuthenticated) unawaited(refreshRecapsFromApi());
+  }
 
   int get unreadNotificationCount =>
       notifications.where((n) => !n.read).length;
@@ -210,6 +241,7 @@ class AppState extends ChangeNotifier {
     suggestedFriendsLoading = false;
     plans.clear();
     recentPlans.clear();
+    _startedPlanIds.clear();
     feedLoading = false;
     feedLoadingMore = false;
     feedHasMore = true;
@@ -224,6 +256,13 @@ class AppState extends ChangeNotifier {
     removedFromPlanToastPlanId = null;
     planPhotoUploadProgress = null;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _planBoundaryTicker?.cancel();
+    _planSyncDebounce?.cancel();
+    super.dispose();
   }
 
   Future<void> _connectRealtime() async {
@@ -716,8 +755,27 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> cancelPlan(String planId) async {
+    final plan = _findPlan(planId);
+    if (plan != null && plan.hasStarted) return;
     await _planRepo.cancelPlan(planId);
     cancelledPlanIds.add(planId);
+    notifyListeners();
+  }
+
+  /// Host manually locks an open plan before it starts. Once locked, no one can
+  /// tap in or leave (server-enforced), though the host can still remove
+  /// attendees. No-op if the caller is not the host or the plan can't be locked.
+  Future<void> lockPlan(String planId) async {
+    final plan = _findPlan(planId);
+    if (plan == null) return;
+    if (!isHost(plan)) return;
+    if (plan.status != PlanStatus.active ||
+        plan.hasStarted ||
+        isPlanCancelled(planId)) {
+      return;
+    }
+    await _planRepo.lockPlan(planId);
+    await _syncPlanFromApi(planId);
     notifyListeners();
   }
 
@@ -951,6 +1009,7 @@ class AppState extends ChangeNotifier {
         status: incoming.status,
         source: incoming.source,
         description: incoming.description,
+        durationMinutes: incoming.durationMinutes,
         activities: incoming.activities,
         gameName: incoming.gameName,
         location: incoming.location,
@@ -1086,6 +1145,7 @@ class AppState extends ChangeNotifier {
 
     final plan = _findPlan(planId);
     if (plan == null || plan.status != PlanStatus.active) return;
+    if (plan.hasStarted) return;
     try {
       await _planRepo.tapOut(planId);
       await _syncPlanFromApi(planId);

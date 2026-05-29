@@ -43,6 +43,12 @@ class NotificationVisual {
           background: SquadColors.primary.withValues(alpha: 0.15),
           foreground: SquadColors.primary,
         );
+      case 'plan_locked':
+        return NotificationVisual(
+          icon: Icons.lock_rounded,
+          background: SquadColors.secondary.withValues(alpha: 0.2),
+          foreground: SquadColors.secondary,
+        );
       case 'removed_from_plan':
         return NotificationVisual(
           icon: Icons.person_remove_outlined,

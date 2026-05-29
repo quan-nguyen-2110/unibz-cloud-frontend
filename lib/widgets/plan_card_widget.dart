@@ -50,6 +50,7 @@ class PlanCardWidget extends StatelessWidget {
             : null;
 
     final locked = plan.status == PlanStatus.locked;
+    final ongoing = plan.status == PlanStatus.ongoing;
     final uid = currentUserId;
     final isHost = uid != null && plan.creatorId == uid;
     final joined = uid != null && plan.userHasTappedIn(uid);
@@ -120,7 +121,9 @@ class PlanCardWidget extends StatelessWidget {
                                           ),
                                           const SizedBox(height: 4),
                                           Text(
-                                            AppDateTime.formatPlanTime(plan.startAt),
+                                            plan.durationLabel != null
+                                                ? '${AppDateTime.formatPlanTime(plan.startAt)} · ${plan.durationLabel}'
+                                                : AppDateTime.formatPlanTime(plan.startAt),
                                             style: TextStyle(
                                               fontSize: 12,
                                               color: SquadColors.muted,
@@ -242,16 +245,24 @@ class PlanCardWidget extends StatelessWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        locked
-                            ? 'Squad locked'
-                            : '$spotsOpen spot${spotsOpen == 1 ? '' : 's'} left',
+                        ongoing
+                            ? 'Happening now'
+                            : locked
+                                ? 'Squad locked'
+                                : '$spotsOpen spot${spotsOpen == 1 ? '' : 's'} left',
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          color: SquadColors.muted,
+                          color: ongoing ? SquadColors.primary : SquadColors.muted,
                         ),
                       ),
                     ),
+                    if (ongoing)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Icon(Icons.play_circle_fill_rounded,
+                            color: SquadColors.primary, size: 20),
+                      ),
                     if (locked)
                       Padding(
                         padding: const EdgeInsets.only(right: 8),

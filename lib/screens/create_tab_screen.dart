@@ -37,6 +37,20 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
   TimeOfDay _whenTime = const TimeOfDay(hour: 19, minute: 0);
   bool _maxUnlimited = false;
   final _customMax = TextEditingController(text: '2');
+
+  /// Estimated time the whole event takes, in minutes. Defaults to 1h.
+  int _durationMinutes = 60;
+  final _customDuration = TextEditingController(text: '60');
+  static const _minDuration = 5;
+  static const _maxDuration = 1440;
+  static const _durationPresets = <(String, int)>[
+    ('30m', 30),
+    ('1h', 60),
+    ('1h 30m', 90),
+    ('2h', 120),
+    ('3h', 180),
+    ('4h', 240),
+  ];
   PlanVisibility _visibility = PlanVisibility.public;
   final List<XFile> _photos = [];
   final ImagePicker _imagePicker = ImagePicker();
@@ -106,6 +120,11 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
       } else {
         _customMax.text = '${s.people.clamp(2, 100)}';
       }
+      if (s.durationMinutes != null) {
+        _durationMinutes =
+            s.durationMinutes!.clamp(_minDuration, _maxDuration);
+        _customDuration.text = '$_durationMinutes';
+      }
     });
     final meta = _customVibeEmoji != null
         ? _styleForCustomEmoji(_customVibeEmoji!)
@@ -113,14 +132,41 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
     final whenLabel = isNowish
         ? 'Now'
         : AppDateTime.formatSchedule(localStart);
+    final durationLabel = ' · ${_durationLabel(_durationMinutes)}';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           'Got it! · ${meta.label} · $whenLabel · @ ${s.location}'
-          '${s.people < 0 ? ' · Unlimited' : ' · max ${s.people}'}',
+          '${s.people < 0 ? ' · Unlimited' : ' · max ${s.people}'}'
+          '$durationLabel',
         ),
       ),
     );
+  }
+
+  String _durationLabel(int minutes) {
+    if (minutes < 60) return '${minutes}m';
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    return m == 0 ? '${h}h' : '${h}h ${m}m';
+  }
+
+  /// Sets the duration and keeps the custom-minutes field text in sync.
+  void _setDuration(int minutes) {
+    final clamped = minutes.clamp(_minDuration, _maxDuration);
+    setState(() {
+      _durationMinutes = clamped;
+      final text = '$clamped';
+      if (_customDuration.text != text) {
+        _customDuration.text = text;
+      }
+    });
+  }
+
+  void _onCustomDurationChanged(String value) {
+    final n = int.tryParse(value.trim());
+    if (n == null) return;
+    setState(() => _durationMinutes = n.clamp(_minDuration, _maxDuration));
   }
 
   int get _parsedMaxPeople {
@@ -151,6 +197,8 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
       _whenTime = const TimeOfDay(hour: 19, minute: 0);
       _maxUnlimited = false;
       _customMax.text = '2';
+      _durationMinutes = 60;
+      _customDuration.text = '60';
       _visibility = PlanVisibility.public;
       _photos.clear();
       _voicePrefilled = false;
@@ -168,6 +216,7 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
     _desc.dispose();
     _location.dispose();
     _customMax.dispose();
+    _customDuration.dispose();
     super.dispose();
   }
 
@@ -234,6 +283,7 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
       ],
       location: loc.isNotEmpty ? loc : 'TBD',
       threshold: _postThreshold,
+      durationMinutes: _durationMinutes,
       transcript: _voicePrefilled ? _voiceTranscript : null,
       visibility: _visibility,
     );
@@ -635,6 +685,43 @@ class _CreateTabScreenState extends State<CreateTabScreen> {
                             ),
                           ),
                       ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              _SectionCard(
+                title: 'How long',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Roughly how long will this plan run?',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: SquadColors.muted,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final preset in _durationPresets)
+                          _DurationChip(
+                            label: preset.$1,
+                            selected: _durationMinutes == preset.$2,
+                            onTap: () => _setDuration(preset.$2),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    _CustomDurationField(
+                      controller: _customDuration,
+                      onChanged: _onCustomDurationChanged,
+                      onStep: (delta) =>
+                          _setDuration(_durationMinutes + delta),
                     ),
                   ],
                 ),
@@ -1100,6 +1187,135 @@ class _SectionCard extends StatelessWidget {
           const SizedBox(height: 12),
           child,
         ],
+      ),
+    );
+  }
+}
+
+class _DurationChip extends StatelessWidget {
+  const _DurationChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected
+          ? SquadColors.primary.withValues(alpha: 0.15)
+          : SquadColors.mutedBg,
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: selected ? SquadColors.primary : SquadColors.muted,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Layout `create.tsx` — custom minutes input with a stepper for "How long".
+class _CustomDurationField extends StatelessWidget {
+  const _CustomDurationField({
+    required this.controller,
+    required this.onChanged,
+    required this.onStep,
+  });
+
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+  final ValueChanged<int> onStep;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: SquadColors.inputFill,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Row(
+        children: [
+          const Icon(Icons.schedule, size: 18, color: SquadColors.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+              decoration: const InputDecoration(
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(vertical: 10),
+              ),
+              onChanged: onChanged,
+            ),
+          ),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _DurationStepButton(
+                icon: Icons.keyboard_arrow_up_rounded,
+                onTap: () => onStep(5),
+              ),
+              _DurationStepButton(
+                icon: Icons.keyboard_arrow_down_rounded,
+                onTap: () => onStep(-5),
+              ),
+            ],
+          ),
+          const SizedBox(width: 8),
+          Text(
+            'minutes',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: SquadColors.muted,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DurationStepButton extends StatelessWidget {
+  const _DurationStepButton({required this.icon, required this.onTap});
+
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: SquadColors.card,
+      borderRadius: BorderRadius.circular(6),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(6),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+          child: Icon(icon, size: 18, color: SquadColors.muted),
+        ),
       ),
     );
   }
